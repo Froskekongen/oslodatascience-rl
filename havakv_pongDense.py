@@ -7,11 +7,13 @@ import gym
 from keras.layers import Dense, Input, Flatten
 from keras.models import Model, load_model
 from keras.optimizers import RMSprop
+from common import LogPong
+import argparse 
 
 resume = False # resume from previous checkpoint?
 render = False
-resume = True # resume from previous checkpoint?
-render = True
+# resume = True # resume from previous checkpoint?
+# render = True
 
 # model initialization 
 model_file_name = 'pong_gym_keras_mlp_full_batch.h5'
@@ -65,6 +67,11 @@ def get_dense_model():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--logfile', type=str, help="name of log file")
+    args = parser.parse_args()
+    logger = LogPong(args.logfile) # log progress
+
     env = gym.make("Pong-v0")
     observation = env.reset()
     prev_x = None # used in computing the difference frame
@@ -101,7 +108,8 @@ def main():
             # boring book-keeping
             # running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
             running_reward = reward_sum if running_reward is None else running_reward * 0.9 + reward_sum * 0.1
-            print('ep %d: reward total was %f. running mean: %f' % (episode_number, reward_sum, running_reward))
+            # print('ep %d: reward total was %f. running mean: %f' % (episode_number, reward_sum, running_reward))
+            logger.log(episode_number, reward_sum) # log progress
             reward_sum = 0
             observation = env.reset() # reset env
             prev_x = None
