@@ -1,5 +1,6 @@
 import logging
 import pandas as pd
+import time
 
 class LogProgress(object):
     '''
@@ -67,6 +68,46 @@ def readLogPong(filename, **kwargs):
     df = pd.read_csv(filename, sep=';', names=('time', 'episode', 'rewardSum'), **kwargs)
     df.time = pd.to_datetime(df.time)
     return df
+
+
+class StreamLog(object):
+    '''A way to read a file as it is written.
+    fileName: file name
+    start: 0 for beginnning of file, 2 for end of file.
+    sleepSec: number of seconds to sleep when we reach end of file.
+    '''
+    def __init__(self, fileName, start=0, sleepSec=2):
+        self.fileName = fileName
+        self.handle = open(self.fileName, 'r')
+        self.start = start
+        self.sleepSec=sleepSec
+
+    def close(self):
+        '''Close file handle.'''
+        self.handle.close()
+
+    def streamContinuously(self):
+        '''Stream continuously. 
+        Run a for loop over <object>.streamContinuously()'''
+        while True:
+            line = self.handle.readline()
+            if not line:
+                time.sleep(self.sleepSec)
+                continue
+            yield line
+
+    def streamAvailable(self):
+        '''Read available file, and break. 
+        Continues where the previous read ended.
+        Run a for loop over <object>.streamAvailable()'''
+        line = 'something'
+        while line:
+            line = self.handle.readline()
+            yield line
+
+    @staticmethod
+    def removeNewLineCharacter(line):
+        return line[:-1]
 
     
 def main():
