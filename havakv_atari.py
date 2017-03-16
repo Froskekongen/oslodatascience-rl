@@ -86,7 +86,7 @@ class Agent(object):
         pass
 
 
-class KarpathyPolecyPong(Agent):
+class KarpathyPolicyPong(Agent):
     '''Karpathy dense policy network.'''
     H = 200 # number of hidden layer neurons
     batch_size = 10 # every how many episodes to do a param update?
