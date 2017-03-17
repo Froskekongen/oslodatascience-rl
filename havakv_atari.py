@@ -1,14 +1,22 @@
+import numpy as np
+import gym
+from keras.layers import Dense, Input, Flatten
+from keras.models import Model, load_model
+from keras.optimizers import RMSprop
+from common import LogPong
 
 class Game(object):
     '''Class for playing an atari game.'''
-    def __init__(self, gameName, agent, render=False):
+    def __init__(self, gameName, agent, render=False, logfile=None):
         self.gameName = gameName
-        self.render = render
         self.agent = agent
+        self.render = render
+        self.logfile = logfile
+        self.logger = LogPong(self.logfile) if self.logfile is not None else None
         self.env = gym.make(self.gameName)
         self.episode = -1 # becomes 0 when we start
 
-    def initialize(self):
+    def _resetEpisode(self):
         self.rewardSum = 0
         self.episode += 1
         observation = self.env.reset()
@@ -16,20 +24,22 @@ class Game(object):
 
     def play(self):
         '''Play the game.'''
-        observation = self.initialize()
+        observation = self._resetEpisode()
         while True:
             if self.render: self.env.render()
 
             action = self.agent.drawAction(observation)
 
             # step the environment and get new measurements
-            observation, reward, done, info = env.step(action)
+            observation, reward, done, info = self.env.step(action)
             self.rewardSum += reward
-            agent.appendResponse(reward, done, info) 
+            self.agent.appendResponse(reward, done, info) 
             
             if done: # an episode has finished
-                observation = self.initialize()
                 print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
+                if self.logger is not None:
+                    self.logger.log(self.episode, self.rewardSum) # log progress
+                observation = self._resetEpisode()
 
 
 
@@ -94,10 +104,13 @@ class KarpathyPolicyPong(Agent):
     gamma = 0.99 # discount factor for reward
     decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
     D = 80 * 80 # input dimensionality: 80x80 grid
-    def __init__(self):
+    def __init__(self, modelFileName, resume=False):
         super().__init__()
+        self.modelFileName = modelFileName
+        self.resume = resume
         self.prev_x = None
         self.episode = 0
+        self._getModel()
 
     def predict(self, states):
         '''Returns predictions based on give states.'''
@@ -135,12 +148,12 @@ class KarpathyPolicyPong(Agent):
         self.model.train_on_batch(epx, epy, sample_weight=discounted_epr.reshape((-1,)))
 
         if self.episode % (batch_size * 3) == 0: 
-            self.model.save(self.model_file_name)
+            self.model.save(self.modelFileName)
 
     def _getModel(self):
         """Make keras model"""
-        if resume:
-            self.model = load_model(model_file_name)
+        if self.resume:
+            self.model = load_model(self.modelFileName)
         else:
             inp = Input(shape=(self.D,))
             h = Dense(self.H, activation='relu')(inp)
@@ -166,16 +179,20 @@ class KarpathyPolicyPong(Agent):
         x = x.reshape((1, -1))
         self.states.append(x)
 
+def test():
+    render = False
+    filename = 'test.h5'
+    resume = False
+    # filename = 'pong_gym_keras_mlp_full_batch.h5'
+    # resume = True
+    # render = True
 
-    
-    
+    gym.undo_logger_setup() # Stop gym logging
+    agent = KarpathyPolicyPong(filename, resume=resume)
+    game = Game('Pong-v0', agent, render=render, logfile='test.log')
+    game.play()
 
 
-
-
-
-
-
-
-
+if __name__ == '__main__': 
+    test()
 
