@@ -33,7 +33,7 @@ class Game(object):
             # step the environment and get new measurements
             observation, reward, done, info = self.env.step(action)
             self.rewardSum += reward
-            self.agent.appendResponse(reward, done, info) 
+            self.agent.update(reward, done, info) 
             
             if done: # an episode has finished
                 print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
@@ -61,13 +61,14 @@ class Agent(object):
         self.states= [] 
         self.rewards = []
 
-    def appendResponse(self, reward, done, info):
-        '''Should:
-            - store relevant response
-            - handle end of game
-            - call update model if appropriate
+    def update(self, reward, done, info):
+        '''Is called to receive the feedback from the environment.
+        It has three tasks:
+            - store relevant feedback
+            - update model if appropriate
+            - handle end of game (e.g. reset some states)
         '''
-        pass
+        raise NotImplementedError
 
     def drawAction(self, observation):
         self.preprocess(observation)
@@ -78,10 +79,10 @@ class Agent(object):
 
     def predict(self, states):
         '''Returns predictions based on give states.'''
-        pass
+        raise NotImplementedError
 
     def preprocess(self, observation):
-        pass
+        raise NotImplementedError
 
     def currentState(self):
         '''Returns the latest state.'''
@@ -89,11 +90,11 @@ class Agent(object):
 
     def policy(self, pred):
         '''Returns an action based on given predictions.'''
-        pass
+        raise NotImplementedError
 
     def updateModel(self):
         '''Should do all work with updating weights.'''
-        pass
+        raise NotImplementedError
 
 
 class KarpathyPolicyPong(Agent):
@@ -121,7 +122,7 @@ class KarpathyPolicyPong(Agent):
         action = 2 if np.random.uniform() < pred else 3 # roll the dice!
         return action
 
-    def appendResponse(self, reward, done, info):
+    def update(self, reward, done, info):
         self.rewards.append(reward)
         if done:
             self.episode += 1
@@ -129,7 +130,7 @@ class KarpathyPolicyPong(Agent):
             if self.episode % self.batch_size == 0:
                 self.updateModel()
 
-    def updataModel(self):
+    def updateModel(self):
         print('Updating weights...')
         # stack together all inputs, actions, and rewards for this episode
         epx = np.vstack(self.states)
