@@ -75,6 +75,7 @@ def get_dense_model():
     model.compile(optim, 'binary_crossentropy')
     try:
         model.load_weights('mod_weights_binary.h5')
+        print('weights loaded')
     except:
         pass
     return model
