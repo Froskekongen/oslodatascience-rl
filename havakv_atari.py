@@ -14,7 +14,7 @@ class Game(object):
         self.logfile = logfile
         self.logger = LogPong(self.logfile) if self.logfile is not None else None
         self.env = gym.make(self.gameName)
-        self.episode = -1 # becomes 0 when we start
+        self.episode = 0 # becomes 1 when we start
 
     def _resetEpisode(self):
         self.rewardSum = 0
@@ -57,6 +57,7 @@ class Agent(object):
         
 
     def resetMemory(self):
+        '''Resets actions, states, and rewards.'''
         self.actions = [] 
         self.states= [] 
         self.rewards = []
@@ -140,7 +141,7 @@ class KarpathyPolicyPong(Agent):
         self.resetMemory()
     
         # compute the discounted reward backwards through time
-        discounted_epr = discount_rewards(epr)
+        discounted_epr = self._discountRewards(epr)
         # standardize the rewards to be unit normal (helps control the gradient estimator variance)
         discounted_epr -= np.mean(discounted_epr)
         discounted_epr /= np.std(discounted_epr)
@@ -148,8 +149,18 @@ class KarpathyPolicyPong(Agent):
         # update our model weights (all in one batch)
         self.model.train_on_batch(epx, epy, sample_weight=discounted_epr.reshape((-1,)))
 
-        if self.episode % (batch_size * 3) == 0: 
+        if self.episode % (self.batch_size * 3) == 0: 
             self.model.save(self.modelFileName)
+
+    def _discountRewards(self, r):
+        """ take 1D float array of rewards and compute discounted reward """
+        discounted_r = np.zeros_like(r)
+        running_add = 0
+        for t in reversed(range(0, r.size)):
+            if r[t] != 0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
+            running_add = running_add * self.gamma + r[t]
+            discounted_r[t] = running_add
+        return discounted_r
 
     def _getModel(self):
         """Make keras model"""
