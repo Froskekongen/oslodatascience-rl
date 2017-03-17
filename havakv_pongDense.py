@@ -1,6 +1,9 @@
 """ 
 Modified scrip from http://karpathy.github.io/2016/05/31/rl/
 Trains an agent with (stochastic) Policy Gradients on Pong. Uses OpenAI Gym. 
+
+Run with:
+    python havavkv_pongDense.py --logfile <filename>
 """
 import numpy as np
 import gym
@@ -9,6 +12,8 @@ from keras.models import Model, load_model
 from keras.optimizers import RMSprop
 from common import LogPong
 import argparse 
+
+gym.undo_logger_setup() # Stop gym logging
 
 resume = False # resume from previous checkpoint?
 render = False
@@ -108,7 +113,7 @@ def main():
             # boring book-keeping
             # running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
             running_reward = reward_sum if running_reward is None else running_reward * 0.9 + reward_sum * 0.1
-            # print('ep %d: reward total was %f. running mean: %f' % (episode_number, reward_sum, running_reward))
+            print('ep %d: reward total was %f. running mean: %f' % (episode_number, reward_sum, running_reward))
             logger.log(episode_number, reward_sum) # log progress
             reward_sum = 0
             observation = env.reset() # reset env
