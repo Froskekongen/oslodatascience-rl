@@ -21,8 +21,8 @@ render = False
 # render = True
 
 # model initialization 
-model_file_name = 'pong_gym_keras_mlp_full_batch.h5'
-# model_file_name = 'test.h5'
+# model_file_name = 'pong_gym_keras_mlp_full_batch.h5'
+model_file_name = 'test.h5'
 
 # hyperparameters
 H = 200 # number of hidden layer neurons
