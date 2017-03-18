@@ -128,7 +128,7 @@ class StandardAtari(Agent):
         raise NotImplementedError
 
     @staticmethod
-    def _preprocessImage(imb):
+    def _preprocessImage(img):
         '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
         img = rgb2gray(img) # compute luminance 210x160
         img = resize(img, (self.D, self.D)) # resize image
