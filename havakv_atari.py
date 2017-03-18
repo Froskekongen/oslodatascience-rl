@@ -4,6 +4,8 @@ from keras.layers import Dense, Input, Flatten
 from keras.models import Model, load_model
 from keras.optimizers import RMSprop
 from common import LogPong
+from skimage.color import rgb2gray
+from skimage.transform import resize
 
 class Game(object):
     '''Class for playing an atari game.'''
@@ -109,6 +111,39 @@ class Agent(object):
         return self.model.predict(states)
 
 
+
+
+class StandardAtari(Agent):
+    '''Abstract class for the standard atari models
+    Includes:
+        - preprocessing of atari images.
+        - keras model.
+    '''
+    D = 84 # Scaled images are 84x84
+
+    def preprocess(self, observation):
+        '''Preprocess observation, and typically store in states list'''
+        observation = self._preprocessImage(observation)
+        # Next.. make states
+        raise NotImplementedError
+
+    @staticmethod
+    def _preprocessImage(imb):
+        '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
+        img = rgb2gray(img) # compute luminance 210x160
+        img = resize(img, (self.D, self.D)) # resize image
+        return img
+
+    def setupModel(self):
+        '''Set up the 3 conv layer keras model.'''
+        raise NotImplementedError
+
+
+
+
+
+
+
 class KarpathyPolicyPong(Agent):
     '''Karpathy dense policy network.'''
     H = 200 # number of hidden layer neurons
@@ -123,7 +158,7 @@ class KarpathyPolicyPong(Agent):
         self.resume = resume
         self.prev_x = None
         self.episode = 0
-        self._getModel()
+        self.setupModel()
 
     def policy(self, pred):
         '''Returns an action based on given predictions.'''
@@ -171,7 +206,7 @@ class KarpathyPolicyPong(Agent):
             discounted_r[t] = running_add
         return discounted_r
 
-    def _getModel(self):
+    def setupModel(self):
         """Make keras model"""
         if self.resume:
             self.model = load_model(self.modelFileName)
@@ -201,6 +236,11 @@ class KarpathyPolicyPong(Agent):
         x = x.reshape((1, -1))
         self.states.append(x)
 
+
+
+
+#--------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------
 def test():
     render = False
     filename = 'test.h5'
@@ -217,4 +257,3 @@ def test():
 
 if __name__ == '__main__': 
     test()
-
