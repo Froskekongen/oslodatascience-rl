@@ -51,16 +51,19 @@ class PlayReplicates(object):
 
 
 class Agent(object):
-    '''Abstract class for an agent.'''
+    '''Abstract class for an agent.
+    An Agent should implement:
+        - model: typically a keras model object.
+        - update: update agent after every response (handle response form env. and call updataModel method).
+        - preprocess: preprocess observation from environment. Called by drawAction.
+        - policy: give an action based on predictions.
+        - updateModel: update the model object.
+    '''
+
+    self.model = NotImplemented # object for holding the model.
+
     def __init__(self):
         self.resetMemory()
-        
-
-    def resetMemory(self):
-        '''Resets actions, states, and rewards.'''
-        self.actions = [] 
-        self.states= [] 
-        self.rewards = []
 
     def update(self, reward, done, info):
         '''Is called to receive the feedback from the environment.
@@ -71,23 +74,9 @@ class Agent(object):
         '''
         raise NotImplementedError
 
-    def drawAction(self, observation):
-        self.preprocess(observation)
-        pred = self.predict(self.currentState())
-        action = self.policy(pred)
-        self.actions.append(action)
-        return action
-
-    def predict(self, states):
-        '''Returns predictions based on give states.'''
-        raise NotImplementedError
-
     def preprocess(self, observation):
+        '''Preprocess observation, and typically store in states list'''
         raise NotImplementedError
-
-    def currentState(self):
-        '''Returns the latest state.'''
-        return self.states[-1]
 
     def policy(self, pred):
         '''Returns an action based on given predictions.'''
@@ -96,6 +85,28 @@ class Agent(object):
     def updateModel(self):
         '''Should do all work with updating weights.'''
         raise NotImplementedError
+
+    def resetMemory(self):
+        '''Resets actions, states, and rewards.'''
+        self.actions = [] 
+        self.states= [] 
+        self.rewards = []
+
+    def currentState(self):
+        '''Returns the latest state.'''
+        return self.states[-1]
+
+    def drawAction(self, observation):
+        '''Draw an action based on the new observation.'''
+        self.preprocess(observation)
+        pred = self.predict(self.currentState())
+        action = self.policy(pred)
+        self.actions.append(action)
+        return action
+
+    def predict(self, states):
+        '''Returns predictions based on give states.'''
+        return self.model.predict(states)
 
 
 class KarpathyPolicyPong(Agent):
@@ -114,16 +125,13 @@ class KarpathyPolicyPong(Agent):
         self.episode = 0
         self._getModel()
 
-    def predict(self, states):
-        '''Returns predictions based on give states.'''
-        return self.model.predict(states)
-
     def policy(self, pred):
         '''Returns an action based on given predictions.'''
         action = 2 if np.random.uniform() < pred else 3 # roll the dice!
         return action
 
     def update(self, reward, done, info):
+        '''See update func in Agent class'''
         self.rewards.append(reward)
         if done:
             self.episode += 1
@@ -132,6 +140,7 @@ class KarpathyPolicyPong(Agent):
                 self.updateModel()
 
     def updateModel(self):
+        '''Should do all work with updating weights.'''
         print('Updating weights...')
         # stack together all inputs, actions, and rewards for this episode
         epx = np.vstack(self.states)
@@ -176,7 +185,7 @@ class KarpathyPolicyPong(Agent):
 
     @staticmethod
     def _preprocess_image(I):
-        """ prepro 210x160x3 uint8 frame into 6400 (80x80) 1D float vector """
+        '''Preprocess 210x160x3 uint8 frame into 6400 (80x80) 1D float vector'''
         I = I[35:195] # crop
         I = I[::2,::2,0] # downsample by factor of 2
         I[I == 144] = 0 # erase background (background type 1)
@@ -185,6 +194,7 @@ class KarpathyPolicyPong(Agent):
         return I.astype(np.float).ravel()
 
     def preprocess(self, observation):
+        '''Proprocess observation. And store in states list'''
         cur_x = self._preprocess_image(observation)
         x = cur_x - self.prev_x if self.prev_x is not None else np.zeros(self.D)
         self.prev_x = cur_x
