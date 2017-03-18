@@ -1,6 +1,8 @@
 '''
 Should be run with:
     bokeh serve --show plotLog.py --args <logfile>
+
+based on http://stackoverflow.com/questions/37724660/streaming-two-line-graphs-using-bokeh
 '''
 
 from common import readLogPong, StreamLog
