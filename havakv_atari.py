@@ -174,14 +174,21 @@ class A2C_OneGame(StandardAtari):
     '''Almost like the A3C agent, but without the with only one game played.
     nbClasses: Number of action classes.
     nbSteps: Number of steps before updating the agent.
+    actionDict: Map an action {0, .. nbClasses} to the actions (passed to atari).
     '''
 
-    def __init__(self, nbClasses, nbSteps):
+    def __init__(self, nbClasses, nbSteps, actionDict):
         super().__init__()
         self.nbClasses = nbClasses
         self.nbSteps = nbSteps
+        self.setupModel()
+        self.actionDict = actionDict
 
     def setupModel(self):
+        '''Setup models:
+        self.model is the action predictions.
+        self.valueModel is the prediction of the value function.
+        '''
         inputShape = (self.D, self.D, self.nbImgInState)
         model = self.deepMindAtariNet(self.nbClasses, inputShape, includeTop=False)
         inp = Input(shape=inputShape)
@@ -194,6 +201,16 @@ class A2C_OneGame(StandardAtari):
 
         value = Dense(1, activation='linear', name='value')(x)
         self.valueModel = Model(inp, value)
+
+    def policy(self, pred):
+        sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred)
+        action = self.actionDict[sampleClass]
+        return action
+
+
+
+
+
 
 
 
