@@ -110,20 +110,24 @@ class Agent(object):
         '''Returns predictions based on give states.'''
         return self.model.predict(states)
 
-def deepMindAtariNet(nbClasses, inputShape, includeTop):
+
+
+def deepMindAtariNet(nbClasses, inputShape, includeTop=True):
     '''Set up the 3 conv layer keras model.
     classes: Number of outputs.
     inputShape: The input shape without the batch size.
     includeTop: If you only want the whole net, or just the convolutions.
     '''
-    raise NotImplementedError
+    inp = Input(shape=inputShape)
+    x = Conv2D(32, 8, 8, subsample=(4, 4), activation='relu', border_mode='same', name='conv1')(inp)
+    x = Conv2D(64, 4, 4, subsample=(2, 2), activation='relu', border_mode='same', name='conv2')(x)
+    x = Conv2D(64, 3, 3, activation='relu', border_mode='same', name='conv3')(x)
     if includeTop:
         x = Flatten(name='flatten')(x)
-        x = Dense(64, activation='relu', name='dense1')(x)
-        out = Dense(nbClasses, activation='categorical_crossentropy', name='output')(x)
+        x = Dense(512, activation='relu', name='dense1')(x)
+        out = Dense(nbClasses, activation='softmax', name='output')(x)
     else:
         out = x
-
     model = Model(inp, out)
     return model
 
