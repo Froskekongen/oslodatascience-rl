@@ -112,24 +112,6 @@ class Agent(object):
 
 
 
-def deepMindAtariNet(nbClasses, inputShape, includeTop=True):
-    '''Set up the 3 conv layer keras model.
-    classes: Number of outputs.
-    inputShape: The input shape without the batch size.
-    includeTop: If you only want the whole net, or just the convolutions.
-    '''
-    inp = Input(shape=inputShape)
-    x = Conv2D(32, 8, 8, subsample=(4, 4), activation='relu', border_mode='same', name='conv1')(inp)
-    x = Conv2D(64, 4, 4, subsample=(2, 2), activation='relu', border_mode='same', name='conv2')(x)
-    x = Conv2D(64, 3, 3, activation='relu', border_mode='same', name='conv3')(x)
-    if includeTop:
-        x = Flatten(name='flatten')(x)
-        x = Dense(512, activation='relu', name='dense1')(x)
-        out = Dense(nbClasses, activation='softmax', name='output')(x)
-    else:
-        out = x
-    model = Model(inp, out)
-    return model
 
 
 
@@ -138,12 +120,10 @@ class StandardAtari(Agent):
     Includes:
         - preprocessing of atari images.
         - keras model.
-    
-    nbClasses: Number of classes in game.
     '''
-    D = 84 # Scaled images are 84x84
-    nbImgInState = 4
-    nbClasses = None
+    D = 84 # Scaled images are 84x84.
+    nbImgInState = 4 # We pass the last 4 images as a state.
+    # nbClasses = NotImplemented # Need to be set to get model.
 
     def preprocess(self, observation):
         '''Preprocess observation, and typically store in states list'''
@@ -162,11 +142,33 @@ class StandardAtari(Agent):
         return img
 
     def setupModel(self):
-        '''Set up the standard DeepMind convnet in Keras.
+        '''Not Implemented (Just a suggestion for structure): 
+        Set up the standard DeepMind convnet in Keras.
+            modelInputShape = (self.D, self.D, self.nbImgInState)
+            self.model = self.deepMindAtariNet(self.nbClasses, modelInputShape, True)
+            model.compile(...)
         '''
-        modelInputShape = (self.D, self.D, self.nbImgInState)
-        self.model = deepMindAtariNet(nbClasses=self.nbClasses, inputShape=modelInputShape, includeTop=True)
+        raise NotImplementedError
 
+    @staticmethod
+    def deepMindAtariNet(nbClasses, inputShape, includeTop=True):
+        '''Set up the 3 conv layer keras model.
+        classes: Number of outputs.
+        inputShape: The input shape without the batch size.
+        includeTop: If you only want the whole net, or just the convolutions.
+        '''
+        inp = Input(shape=inputShape)
+        x = Conv2D(32, 8, 8, subsample=(4, 4), activation='relu', border_mode='same', name='conv1')(inp)
+        x = Conv2D(64, 4, 4, subsample=(2, 2), activation='relu', border_mode='same', name='conv2')(x)
+        x = Conv2D(64, 3, 3, activation='relu', border_mode='same', name='conv3')(x)
+        if includeTop:
+            x = Flatten(name='flatten')(x)
+            x = Dense(512, activation='relu', name='dense1')(x)
+            out = Dense(nbClasses, activation='softmax', name='output')(x)
+        else:
+            out = x
+        model = Model(inp, out)
+        return model
 
 
 
