@@ -3,6 +3,7 @@ import gym
 from keras.layers import Conv2D, Dense, Input, Flatten
 from keras.models import Model, load_model
 from keras.optimizers import RMSprop
+from keras.utils.np_utils import to_categorical
 from common import LogPong
 from skimage.color import rgb2gray
 from skimage.transform import resize
@@ -174,15 +175,24 @@ class A2C_OneGame(StandardAtari):
     '''Almost like the A3C agent, but without the with only one game played.
     nbClasses: Number of action classes.
     nbSteps: Number of steps before updating the agent.
-    actionDict: Map an action {0, .. nbClasses} to the actions (passed to atari).
+    actionSpace: Allowed actions (passed to atari).
     '''
 
-    def __init__(self, nbClasses, nbSteps, actionDict):
+    gamma = 0.99 # discount factor for reward
+
+    def __init__(self, nbClasses, nbSteps, actionSpace):
         super().__init__()
         self.nbClasses = nbClasses
         self.nbSteps = nbSteps
         self.setupModel()
-        self.actionDict = actionDict
+        self.actionSpace = actionSpace
+        self._makeActionClassMapping()
+        self.episode = 0
+        self.stepNumber = 0 # iterates every frame
+
+    def _makeActionClassMapping(self):
+        self.action2Class = {action: i for i, action in enumerate(self.actionSpace)}
+        self.class2Action = {i: action for i, action in enumerate(self.actionSpace)}
 
     def setupModel(self):
         '''Setup models:
@@ -198,15 +208,58 @@ class A2C_OneGame(StandardAtari):
 
         action = Dense(self.nbClasses, activation='softmax', name='action')(x)
         self.model = Model(inp, action)
+        # Should we compile model?
 
         value = Dense(1, activation='linear', name='value')(x)
         self.valueModel = Model(inp, value)
+        # Should we compile model?
+
+        self.fullModel = Model(inp, [action, value])
+        loss = {'action': 'categorical_crossentropy', 'value': 'mse'}
+        loss_weights = {'action': 1, 'value': 1}
+        self.fullModel.compile('rmsprop', loss=loss) # Need to make it possible to set other optimizers
 
     def policy(self, pred):
-        sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred)
-        action = self.actionDict[sampleClass]
+        sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred)[0]
+        action = self.class2Action[sampleClass]
         return action
 
+    def update(self, reward, done, info):
+        raise NotImplementedError
+        self.rewards.append(reward)
+        self.stepNumber += 1
+
+        # if done or (self.stepNumber == self.nbSteps):
+        if (self.stepNumber == self.nbSteps):
+            self.updateModel()
+            self.stepNumber = 0
+        if done:
+            self.episode += 1
+            # Should set state to zeros again????
+
+    def updateModel(self):
+        if not done:
+            self.rewards[-1] = self.valueModel.predict(self.currentState())
+        rewards = np.vstack(self.rewards)
+        discountedRewards = self._discountRewards(rewards)
+        X = np.vstack(self.states)
+        fakeLabels = [self.action2Class for action in self.actions]
+        Y = np.vstack(fakeLabels)
+        Y = to_categorical(Y, self.nbClasses)
+        self.fullModel.train_on_batch(X, [Y, discountedRewards])
+        #!!!!!!!!!!!!!!!!!!!!11 Need sample_weights only to one of the two losses!!!!!
+        # Maybe use custom loss function and instead of Y, add discountedRewards as a columns to Y
+
+
+    def _discountRewards(self, r):
+        """Take 1D float array of rewards and compute discounted reward """
+        discounted_r = np.zeros_like(r)
+        running_add = 0
+        for t in reversed(range(0, r.size)):
+            if r[t] != 0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
+            running_add = running_add * self.gamma + r[t]
+            discounted_r[t] = running_add
+        return discounted_r
 
 
 
