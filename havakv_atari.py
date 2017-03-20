@@ -120,15 +120,19 @@ class StandardAtari(Agent):
         - keras model.
     '''
     D = 84 # Scaled images are 84x84
+    nbImgInState = 4
 
     def preprocess(self, observation):
         '''Preprocess observation, and typically store in states list'''
-        observation = self._preprocessImage(observation)
-        # Next.. make states
-        raise NotImplementedError
+        observation = self.preprocessImage(observation)
+        newState = np.zeros((1, D, D, self.nbImgInState))
+        if len(states) != 0:
+            newState[..., :-1] = self.currentState()[..., 1:]
+        newState[..., -1] = observation
+        self.states.append(newState)
 
     @staticmethod
-    def _preprocessImage(img):
+    def preprocessImage(img):
         '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
         img = rgb2gray(img) # compute luminance 210x160
         img = resize(img, (self.D, self.D)) # resize image
