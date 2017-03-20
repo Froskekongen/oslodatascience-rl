@@ -1,6 +1,6 @@
 import numpy as np
 import gym
-from keras.layers import Dense, Input, Flatten
+from keras.layers import Conv2D, Dense, Input, Flatten
 from keras.models import Model, load_model
 from keras.optimizers import RMSprop
 from common import LogPong
@@ -110,6 +110,22 @@ class Agent(object):
         '''Returns predictions based on give states.'''
         return self.model.predict(states)
 
+def deepMindAtariNet(nbClasses, inputShape, includeTop):
+    '''Set up the 3 conv layer keras model.
+    classes: Number of outputs.
+    inputShape: The input shape without the batch size.
+    includeTop: If you only want the whole net, or just the convolutions.
+    '''
+    raise NotImplementedError
+    if includeTop:
+        x = Flatten(name='flatten')(x)
+        x = Dense(64, activation='relu', name='dense1')(x)
+        out = Dense(nbClasses, activation='categorical_crossentropy', name='output')(x)
+    else:
+        out = x
+
+    model = Model(inp, out)
+    return model
 
 
 
@@ -118,9 +134,12 @@ class StandardAtari(Agent):
     Includes:
         - preprocessing of atari images.
         - keras model.
+    
+    nbClasses: Number of classes in game.
     '''
     D = 84 # Scaled images are 84x84
     nbImgInState = 4
+    nbClasses = None
 
     def preprocess(self, observation):
         '''Preprocess observation, and typically store in states list'''
@@ -139,8 +158,10 @@ class StandardAtari(Agent):
         return img
 
     def setupModel(self):
-        '''Set up the 3 conv layer keras model.'''
-        raise NotImplementedError
+        '''Set up the standard DeepMind convnet in Keras.
+        '''
+        modelInputShape = (self.D, self.D, self.nbImgInState)
+        self.model = deepMindAtariNet(nbClasses=self.nbClasses, inputShape=modelInputShape, includeTop=True)
 
 
 
