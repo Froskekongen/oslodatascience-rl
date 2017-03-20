@@ -123,7 +123,6 @@ class StandardAtari(Agent):
     '''
     D = 84 # Scaled images are 84x84.
     nbImgInState = 4 # We pass the last 4 images as a state.
-    # nbClasses = NotImplemented # Need to be set to get model.
 
     def preprocess(self, observation):
         '''Preprocess observation, and typically store in states list'''
@@ -169,6 +168,37 @@ class StandardAtari(Agent):
             out = x
         model = Model(inp, out)
         return model
+
+
+class A2C_OneGame(StandardAtari):
+    '''Almost like the A3C agent, but without the with only one game played.
+    nbClasses: Number of action classes.
+    nbSteps: Number of steps before updating the agent.
+    '''
+
+    def __init__(self, nbClasses, nbSteps):
+        super().__init__()
+        self.nbClasses = nbClasses
+        self.nbSteps = nbSteps
+
+    def setupModel(self):
+        inputShape = (self.D, self.D, self.nbImgInState)
+        model = self.deepMindAtariNet(self.nbClasses, inputShape, includeTop=False)
+        inp = Input(shape=inputShape)
+        x = model(x)
+        x = Flatten()(x)
+        x = Dense(512, activation='relu', name='dense1')(x)
+
+        action = Dense(self.nbClasses, activation='softmax', name='action')(x)
+        self.model = Model(inp, action)
+
+        value = Dense(1, activation='linear', name='value')(x)
+        self.valueModel = Model(inp, value)
+
+
+
+
+
 
 
 
