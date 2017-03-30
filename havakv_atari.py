@@ -63,7 +63,7 @@ class Agent(object):
         - updateModel: update the model object.
     '''
 
-    self.model = NotImplemented # object for holding the model.
+    model = NotImplemented # object for holding the model.
 
     def __init__(self):
         self.resetMemory()
@@ -263,11 +263,18 @@ class A2C_OneGame(StandardAtari):
 
 
 
+def responseWithSampleWeights(y):
+    '''Function for making labels ytrueWithWeights passed to 
+    categoricalCrossentropyWithWeights(ytrueWithWeights, ypred).
+    '''
+    raise NotImplementedError
 
-
-
-
-
+def categoricalCrossentropyWithWeights(ytrueWithWeights, ypred):
+    '''Like regular categorical cross entropy, but with sample weights for every row.
+    ytrueWithWeights is a matrix where the first columns are one hot encoder for the
+    classes, while the last column contains the sample weights.
+    '''
+    return K.categorical_crossentropy(ypred, ytrueWithWeights[:, :-1]) * ytrueWithWeights[:, -1]
 
 
 
