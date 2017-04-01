@@ -4,6 +4,7 @@ from keras.layers import Conv2D, Dense, Input, Flatten
 from keras.models import Model, load_model
 from keras.optimizers import RMSprop
 from keras.utils.np_utils import to_categorical
+import keras.backend as K
 from common import LogPong
 from skimage.color import rgb2gray
 from skimage.transform import resize
@@ -26,23 +27,32 @@ class Game(object):
         return observation
 
     def play(self):
-        '''Play the game.'''
-        observation = self._resetEpisode()
+        '''Play the game'''
+        self.setupGame()
         while True:
-            if self.render: self.env.render()
+            self.step()
 
-            action = self.agent.drawAction(observation)
+    def setupGame(self):
+        self.observation = self._resetEpisode()
 
-            # step the environment and get new measurements
-            observation, reward, done, info = self.env.step(action)
-            self.rewardSum += reward
-            self.agent.update(reward, done, info) 
-            
-            if done: # an episode has finished
-                print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
-                if self.logger is not None:
-                    self.logger.log(self.episode, self.rewardSum) # log progress
-                observation = self._resetEpisode()
+    def step(self):
+        '''Step one frame in game.
+        Need to run setupGame before we can step.
+        '''
+        if self.render: self.env.render()
+
+        action = self.agent.drawAction(self.observation)
+
+        # step the environment and get new measurements
+        self.observation, reward, done, info = self.env.step(action)
+        self.rewardSum += reward
+        self.agent.update(reward, done, info) 
+        
+        if done: # an episode has finished
+            print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
+            if self.logger is not None:
+                self.logger.log(self.episode, self.rewardSum) # log progress
+            self.observation = self._resetEpisode()
 
 
 
@@ -128,17 +138,16 @@ class StandardAtari(Agent):
     def preprocess(self, observation):
         '''Preprocess observation, and typically store in states list'''
         observation = self.preprocessImage(observation)
-        newState = np.zeros((1, D, D, self.nbImgInState))
-        if len(states) != 0:
+        newState = np.zeros((1, self.D, self.D, self.nbImgInState))
+        if len(self.states) != 0:
             newState[..., :-1] = self.currentState()[..., 1:]
         newState[..., -1] = observation
         self.states.append(newState)
 
-    @staticmethod
-    def preprocessImage(img):
+    def preprocessImage(self, img):
         '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
         img = rgb2gray(img) # compute luminance 210x160
-        img = resize(img, (self.D, self.D)) # resize image
+        img = resize(img, (self.D, self.D), mode='constant') # resize image
         return img
 
     def setupModel(self):
@@ -185,12 +194,15 @@ class A2C_OneGame(StandardAtari):
     mseBeta = 0.5 # Weighting of value mse loss.
     entropyBeta = 0.1 # Weighting of entropy loss.
 
-    def __init__(self, nbClasses, nbSteps, actionSpace):
+    def __init__(self, nbClasses, nbSteps, actionSpace, modelFileName, resume=False):
         super().__init__()
         self.nbClasses = nbClasses
         self.nbSteps = nbSteps
-        self.setupModel()
         self.actionSpace = actionSpace
+        self.modelFileName = modelFileName
+        self.resume = resume
+
+        self.setupModel()
         self._makeActionClassMapping()
         self.episode = 0
         self.stepNumber = 0 # iterates every frame
@@ -210,10 +222,14 @@ class A2C_OneGame(StandardAtari):
         self.valueModel is the prediction of the value function.
         self.model is the model with both outputs
         '''
+        if self.resume:
+            self.model = load_model(self.modelFileName)
+            # Need the other models as well...
+            return
         inputShape = (self.D, self.D, self.nbImgInState)
         model = self.deepMindAtariNet(self.nbClasses, inputShape, includeTop=False)
         inp = Input(shape=inputShape)
-        x = model(x)
+        x = model(inp)
         x = Flatten()(x)
         x = Dense(512, activation='relu', name='dense1')(x)
 
@@ -243,33 +259,42 @@ class A2C_OneGame(StandardAtari):
         return action
 
     def policy(self, pred):
-        sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred)[0]
+        sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred[0])[0]
         action = self.class2Action[sampleClass]
         return action
 
     def update(self, reward, done, info):
-        raise NotImplementedError
         self.rewards.append(reward)
         self.stepNumber += 1
 
         # if done or (self.stepNumber == self.nbSteps):
-        if (self.stepNumber == self.nbSteps):
+        if (self.stepNumber == self.nbSteps) or done:
+            if len(self.states) == 1 + len(self.actions):
+                self.states = self.states[1:] # The first element is from last update
+            if not done:
+                self.rewards[-1] = self.valuePreds[-1]
             self.updateModel()
+            
             self.stepNumber = 0
-        if done:
-            self.episode += 1
-            # Should set state to zeros again????
+            prevState = self.currentState()
+            self.resetMemory()
+            self.states.append(prevState) # Store last state (if not done)
+            if done:
+                self.episode += 1
+                self.resetMemory()
+
+            if self.episode % 10 == 0: 
+                self.model.save(self.modelFileName)
 
     def updateModel(self):
-        if not done:
-            self.rewards[-1] = self.valueModel.predict(self.currentState())
         rewards = np.vstack(self.rewards)
         discountedRewards = self._discountRewards(rewards)
         X = np.vstack(self.states)
-        fakeLabels = [self.action2Class for action in self.actions]
+        fakeLabels = [self.action2Class[action] for action in self.actions]
         Y = np.vstack(fakeLabels)
-        # Y = to_categorical(Y, self.nbClasses)
-        Y = responseWithSampleWeights(Y, self.nbClasses)
+        valuePreds = np.vstack(self.valuePreds)
+        actionValues = discountedRewards - valuePreds
+        Y = responseWithSampleWeights(Y, actionValues, self.nbClasses)
         self.model.train_on_batch(X, [Y, discountedRewards])
 
 
@@ -285,11 +310,19 @@ class A2C_OneGame(StandardAtari):
 
 
 
-def responseWithSampleWeights(y, nbClasses):
+def responseWithSampleWeights(y, sampleWeights, nbClasses):
     '''Function for making labels ytrueWithWeights passed to 
     categoricalCrossentropyWithWeights(ytrueWithWeights, ypred).
+    y: Vector with zero-indexed classes.
+    sampleWeights: vector of sample weights.
+    nbClasses: number of classes.
+    returns: One-hot matrix with y, and last columns contain responses.
     '''
-    raise NotImplementedError
+    n = len(y)
+    Y = np.zeros((n, nbClasses + 1))
+    Y[:, :-1] = to_categorical(y, nbClasses)
+    Y[:, -1] = sampleWeights.flatten()
+    return Y
 
 def categoricalCrossentropyWithWeights(ytrueWithWeights, ypred):
     '''Like regular categorical cross entropy, but with sample weights for every row.
@@ -310,15 +343,15 @@ def makeActionAndEntropyLossA3C(beta):
     Here we return the loss function than can be passed to Keras.
     beta: Weighting of entropy.
     '''
-    def loss(ytrueWithWeighs, ypred):
+    def loss(ytrueWithWeights, ypred):
         '''Action and entropy loss for the A3C algorithm.
         ytrueWithWeights: A matrix where the first columns are one hot encoder for the
             classes, while the last column contains the sample weights.
         ypred: Predictions.
         '''
         policyLoss = categoricalCrossentropyWithWeights(ytrueWithWeights, ypred)
-        entropyLoss = entropyLoss(ypred)
-        return policyLoss - beta * entropyLoss # - because the entropy is positive with minimal values in 0 and 1
+        entropy = entropyLoss(ypred)
+        return policyLoss - beta * entropy # - because the entropy is positive with minimal values in 0 and 1
     return loss
     
 
@@ -436,6 +469,19 @@ def test():
     game = Game('Pong-v0', agent, render=render, logfile='test.log')
     game.play()
 
+def testA2C():
+    render = False
+    filename = 'testA2C.h5'
+    resume = False
+    # resume = True
+    # render = True
+
+    gym.undo_logger_setup() # Stop gym logging
+    actionSpace = [2, 3]
+    agent = A2C_OneGame(2, 100, actionSpace, filename, resume=resume)
+    game = Game('Pong-v0', agent, render=render, logfile='test.log')
+    game.play()
 
 if __name__ == '__main__': 
-    test()
+    # test()
+    testA2C()
