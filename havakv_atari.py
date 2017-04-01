@@ -173,7 +173,9 @@ class StandardAtari(Agent):
 
 class A2C_OneGame(StandardAtari):
     '''Almost like the A3C agent, but without the with only one game played.
-    NEED TO IMPLEMENT ENTROPY!!!!!!!!!!!!!!!!!!!!!
+    NEED TO:
+        - Different optimizers
+
     nbClasses: Number of action classes.
     nbSteps: Number of steps before updating the agent.
     actionSpace: Allowed actions (passed to atari).
@@ -266,10 +268,9 @@ class A2C_OneGame(StandardAtari):
         X = np.vstack(self.states)
         fakeLabels = [self.action2Class for action in self.actions]
         Y = np.vstack(fakeLabels)
-        Y = to_categorical(Y, self.nbClasses)
-        self.fullModel.train_on_batch(X, [Y, discountedRewards])
-        #!!!!!!!!!!!!!!!!!!!!11 Need sample_weights only to one of the two losses!!!!!
-        # Maybe use custom loss function and instead of Y, add discountedRewards as a columns to Y
+        # Y = to_categorical(Y, self.nbClasses)
+        Y = responseWithSampleWeights(Y, self.nbClasses)
+        self.model.train_on_batch(X, [Y, discountedRewards])
 
 
     def _discountRewards(self, r):
@@ -284,7 +285,7 @@ class A2C_OneGame(StandardAtari):
 
 
 
-def responseWithSampleWeights(y):
+def responseWithSampleWeights(y, nbClasses):
     '''Function for making labels ytrueWithWeights passed to 
     categoricalCrossentropyWithWeights(ytrueWithWeights, ypred).
     '''
@@ -317,11 +318,9 @@ def makeActionAndEntropyLossA3C(beta):
         '''
         policyLoss = categoricalCrossentropyWithWeights(ytrueWithWeights, ypred)
         entropyLoss = entropyLoss(ypred)
-        return policyLoss + beta * entropyLoss
+        return policyLoss - beta * entropyLoss # - because the entropy is positive with minimal values in 0 and 1
     return loss
     
-
-
 
 
 
