@@ -226,7 +226,7 @@ class A2C_OneGame(StandardAtari):
         self.model = Model(inp, [action, value])
         # loss = {'action': 'categorical_crossentropy', 'value': 'mse'}
         # loss = {'action': categoricalCrossentropyWithWeights, 'value': 'mse'}
-        actionAndEntropyLoss = makeActionLossA3C(self.entropyBeta)
+        actionAndEntropyLoss = makeActionAndEntropyLossA3C(self.entropyBeta)
         loss = {'action': actionAndEntropyLoss, 'value': 'mse'}
         loss_weights = {'action': 1, 'value': self.mseBeta}
         self.model.compile('rmsprop', loss=loss) # Need to make it possible to set other optimizers
