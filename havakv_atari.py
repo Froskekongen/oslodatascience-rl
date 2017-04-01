@@ -193,6 +193,8 @@ class A2C_OneGame(StandardAtari):
     gamma = 0.99 # discount factor for reward
     mseBeta = 0.5 # Weighting of value mse loss.
     entropyBeta = 0.1 # Weighting of entropy loss.
+    learningRate = 1e-4
+    decayRate = 0.99 # decay factor for RMSProp leaky sum of grad^2
 
     def __init__(self, nbClasses, nbSteps, actionSpace, modelFileName, resume=False):
         super().__init__()
@@ -247,7 +249,8 @@ class A2C_OneGame(StandardAtari):
         actionAndEntropyLoss = makeActionAndEntropyLossA3C(self.entropyBeta)
         loss = {'action': actionAndEntropyLoss, 'value': 'mse'}
         loss_weights = {'action': 1, 'value': self.mseBeta}
-        self.model.compile('rmsprop', loss=loss) # Need to make it possible to set other optimizers
+        optim = RMSprop(self.learningRate, self.decayRate)
+        self.model.compile(optim, loss) # Need to make it possible to set other optimizers
 
     def drawAction(self, observation):
         '''Draw an action based on the new obseravtio.'''
@@ -267,7 +270,6 @@ class A2C_OneGame(StandardAtari):
         self.rewards.append(reward)
         self.stepNumber += 1
 
-        # if done or (self.stepNumber == self.nbSteps):
         if (self.stepNumber == self.nbSteps) or done:
             if len(self.states) == 1 + len(self.actions):
                 self.states = self.states[1:] # The first element is from last update
