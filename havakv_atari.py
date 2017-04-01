@@ -173,12 +173,15 @@ class StandardAtari(Agent):
 
 class A2C_OneGame(StandardAtari):
     '''Almost like the A3C agent, but without the with only one game played.
+    NEED TO IMPLEMENT ENTROPY!!!!!!!!!!!!!!!!!!!!!
     nbClasses: Number of action classes.
     nbSteps: Number of steps before updating the agent.
     actionSpace: Allowed actions (passed to atari).
     '''
 
     gamma = 0.99 # discount factor for reward
+    mseBeta = 0.5 # Weighting of value mse loss.
+    entropyBeta = 0.1 # Weighting of entropy loss.
 
     def __init__(self, nbClasses, nbSteps, actionSpace):
         super().__init__()
@@ -190,14 +193,20 @@ class A2C_OneGame(StandardAtari):
         self.episode = 0
         self.stepNumber = 0 # iterates every frame
 
+    def resetMemory(self):
+        '''Resets actions, states, rewards, and predicted values.'''
+        super().resetMemory()
+        self.valuePreds = []
+
     def _makeActionClassMapping(self):
         self.action2Class = {action: i for i, action in enumerate(self.actionSpace)}
         self.class2Action = {i: action for i, action in enumerate(self.actionSpace)}
 
     def setupModel(self):
         '''Setup models:
-        self.model is the action predictions.
+        self.actionModel is the action predictions.
         self.valueModel is the prediction of the value function.
+        self.model is the model with both outputs
         '''
         inputShape = (self.D, self.D, self.nbImgInState)
         model = self.deepMindAtariNet(self.nbClasses, inputShape, includeTop=False)
@@ -207,17 +216,29 @@ class A2C_OneGame(StandardAtari):
         x = Dense(512, activation='relu', name='dense1')(x)
 
         action = Dense(self.nbClasses, activation='softmax', name='action')(x)
-        self.model = Model(inp, action)
+        self.actionModel = Model(inp, action)
         # Should we compile model?
 
         value = Dense(1, activation='linear', name='value')(x)
         self.valueModel = Model(inp, value)
         # Should we compile model?
 
-        self.fullModel = Model(inp, [action, value])
-        loss = {'action': 'categorical_crossentropy', 'value': 'mse'}
-        loss_weights = {'action': 1, 'value': 1}
-        self.fullModel.compile('rmsprop', loss=loss) # Need to make it possible to set other optimizers
+        self.model = Model(inp, [action, value])
+        # loss = {'action': 'categorical_crossentropy', 'value': 'mse'}
+        # loss = {'action': categoricalCrossentropyWithWeights, 'value': 'mse'}
+        actionAndEntropyLoss = makeActionLossA3C(self.entropyBeta)
+        loss = {'action': actionAndEntropyLoss, 'value': 'mse'}
+        loss_weights = {'action': 1, 'value': self.mseBeta}
+        self.model.compile('rmsprop', loss=loss) # Need to make it possible to set other optimizers
+
+    def drawAction(self, observation):
+        '''Draw an action based on the new obseravtio.'''
+        self.preprocess(observation)
+        actionPred, valuePred = self.predict(self.currentState())
+        self.valuePreds.append(valuePred)
+        action = self.policy(actionPred)
+        self.actions.append(action)
+        return action
 
     def policy(self, pred):
         sampleClass = np.random.choice(range(self.nbClasses), 1, p=pred)[0]
@@ -275,6 +296,30 @@ def categoricalCrossentropyWithWeights(ytrueWithWeights, ypred):
     classes, while the last column contains the sample weights.
     '''
     return K.categorical_crossentropy(ypred, ytrueWithWeights[:, :-1]) * ytrueWithWeights[:, -1]
+
+def entropyLoss(ypred):
+    '''Entropy loss.
+    Loss = - sum(pred * log(pred))
+    '''
+    return K.categorical_crossentropy(ypred, ypred)
+
+def makeActionAndEntropyLossA3C(beta):
+    '''The part of the A3C loss function concerned with the actions, 
+    i.e. action loss and entropy loss.
+    Here we return the loss function than can be passed to Keras.
+    beta: Weighting of entropy.
+    '''
+    def loss(ytrueWithWeighs, ypred):
+        '''Action and entropy loss for the A3C algorithm.
+        ytrueWithWeights: A matrix where the first columns are one hot encoder for the
+            classes, while the last column contains the sample weights.
+        ypred: Predictions.
+        '''
+        policyLoss = categoricalCrossentropyWithWeights(ytrueWithWeights, ypred)
+        entropyLoss = entropyLoss(ypred)
+        return policyLoss + beta * entropyLoss
+    return loss
+    
 
 
 
