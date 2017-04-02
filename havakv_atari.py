@@ -17,8 +17,6 @@ class Game(object):
         self.render = render
         self.logfile = logfile
         self.logger = LogPong(self.logfile) if self.logfile is not None else None
-        self.env = gym.make(self.gameName)
-        self.episode = 0 # becomes 1 when we start
 
     def _resetEpisode(self):
         self.rewardSum = 0
@@ -33,6 +31,8 @@ class Game(object):
             self.step()
 
     def setupGame(self):
+        self.env = gym.make(self.gameName)
+        self.episode = 0 # becomes 1 when we start
         self.observation = self._resetEpisode()
 
     def step(self):
@@ -56,11 +56,97 @@ class Game(object):
 
 
 
-class PlayReplicates(object):
-    '''Play multiple replicates of the same game.'''
-    def __init__(self, gameName, nbReplicates):
-        self.gameName = gameName
+class GameReplicates(object):
+    '''Play multiple replicates of the same game but NOT parallelized.
+    nbReplicates: Number of replicates.
+    gameName: The name of the game.
+    agents: A MultipleAgents object holding all agents.
+    logfile: 
+    '''
+    
+    def __init__(self, nbReplicates, gameName, agents, logfile=None):
         self.nbReplicates = nbReplicates
+        self.gameName = gameName
+        self.agents = agents
+        self.logfile = logfile
+        self.logger = LogPong(self.logfile) if self.logfile is not None else None
+
+    def setupGames(self):
+        # Only one game are used for logging
+        self.games = [Game(self.gameName, self.agents.mainAgent, False, self.logfile)]
+        for agent in self.agents.workerAgents:
+            self.games.append(Game(self.gameName, agent, False, None))
+
+        for game in self.games:
+            game.setupGame()
+
+    def step(self):
+        '''Step through all games.'''
+        for game in self.games:
+            if not game.agent.done: game.step()
+
+    def play(self):
+        '''Play all games.'''
+        self.setupGames()
+        while True:
+            self.step()
+            # if all games are done
+            if False not in [game.agent.done for game in self.games]: 
+                self.agents.updateAgents()
+        
+
+
+class MultipleAgents(object):
+    '''Class for holding multiple worker agents.
+    The first agent will be used for updating the model, and the model will be sent
+    to the others.
+    '''
+    def __init__(self, nbReplicates, agentClass,  **kwargsAgent):
+        self.nbReplicates = nbReplicates
+        self.agentClass = agentClass
+        self.kwargsAgent = kwargsAgent
+
+    @property
+    def workerAgents(self):
+        return self.agents[1:]
+
+    @property
+    def mainAgent(self):
+        return self.agents[0]
+
+    def setupAgents(self):
+        self.agents = [self.agentClass(**self.kwargsAgent) for _ in self.nbReplicates]
+        self.mainAgent.setupModel()
+        self.distributeModelToWorkers()
+
+    def updateAgents(self):
+        '''Update the model in the agents.'''
+        self.collectExperiences()
+        self.updateModelMainAgent()
+        self.distributeModelToWorkers()
+        self.resetExperiences()
+        raise NotImplementedError('Need to reset agents!!!!!!!!')
+        raise NotImplementedError('Need to take into account that we store last observatoin in observation list, making it longer.')
+        raise NotImplementedError('Set rewards if game not done')
+
+    def resetExperiences():
+        '''Reset experiences of the agents'''
+        raise NotImplementedError
+
+    def collectExperiences(self):
+        for agent in self.workerAgents:
+            self.mainAgent.appendExperiences(agent.getExperiences())
+
+    def updateModelMainAgent(self):
+        '''Perform the update of the model in the mainAgent.'''
+        self.mainAgent.updateModel()
+
+    def distributeModelToWorkers(self):
+        '''Send the main model to the worker agents.'''
+        for agent in self.workerAgents:
+            agent.model = self.mainAgent.model
+
+
 
 
 class Agent(object):
@@ -99,11 +185,20 @@ class Agent(object):
         '''Should do all work with updating weights.'''
         raise NotImplementedError
 
+    def setupModel(self):
+        '''Function for setting up the self.model object'''
+        raise NotImplementedError
+    
+    def resetExperiences(self):
+        '''Resetting agent after updating the model.'''
+        raise NotImplementedError
+
     def resetMemory(self):
         '''Resets actions, states, and rewards.'''
         self.actions = [] 
         self.states= [] 
         self.rewards = []
+
 
     def currentState(self):
         '''Returns the latest state.'''
@@ -121,6 +216,17 @@ class Agent(object):
         '''Returns predictions based on give states.'''
         return self.model.predict(states)
 
+    def getExperienes(self):
+        '''Should return all experiences. 
+        Useful when we have multiple worker agents.
+        '''
+        return [self.actions, self.states, self.rewards]
+
+    def appendExperiences(self, experiences):
+        '''Should append experiences from getExperiences().
+        Useful when we have multiple worker agents.
+        '''
+        self.actions, self.states, self.rewards = experiences
 
 
 
@@ -182,8 +288,6 @@ class StandardAtari(Agent):
 
 class A2C_OneGame(StandardAtari):
     '''Almost like the A3C agent, but without the with only one game played.
-    NEED TO:
-        - Different optimizers
 
     nbClasses: Number of action classes.
     nbSteps: Number of steps before updating the agent.
@@ -196,7 +300,7 @@ class A2C_OneGame(StandardAtari):
     learningRate = 1e-4
     decayRate = 0.99 # decay factor for RMSProp leaky sum of grad^2
 
-    def __init__(self, nbClasses, nbSteps, actionSpace, modelFileName, resume=False):
+    def __init__(self, nbClasses, nbSteps, actionSpace, modelFileName, resume=False, setupModel=True):
         super().__init__()
         self.nbClasses = nbClasses
         self.nbSteps = nbSteps
@@ -204,7 +308,8 @@ class A2C_OneGame(StandardAtari):
         self.modelFileName = modelFileName
         self.resume = resume
 
-        self.setupModel()
+        if setupModel:
+            self.setupModel()
         self._makeActionClassMapping()
         self.episode = 0
         self.stepNumber = 0 # iterates every frame
@@ -276,17 +381,30 @@ class A2C_OneGame(StandardAtari):
             if not done:
                 self.rewards[-1] = self.valuePreds[-1]
             self.updateModel()
-            
+            self.resetExperiences()
+         
             self.stepNumber = 0
-            prevState = self.currentState()
-            self.resetMemory()
-            self.states.append(prevState) # Store last state (if not done)
+            # prevState = self.currentState()
+            # self.resetMemory()
+            # self.states.append(prevState) # Store last state (if not done)
             if done:
                 self.episode += 1
-                self.resetMemory()
+                # self.resetMemory()
 
             if self.episode % 10 == 0: 
                 self.model.save(self.modelFileName)
+
+    def resetExperiences(self, done=False):
+        '''Resetting agent after updating the model.
+        done: If game has passed done=True.
+        '''
+        if done: 
+            self.resetMemory()
+        else:
+            prevState = self.currentState()
+            self.resetMemory()
+            self.states.append(prevState) # Store last state (if not done)
+        
 
     def updateModel(self):
         rewards = np.vstack(self.rewards)
@@ -310,6 +428,28 @@ class A2C_OneGame(StandardAtari):
             discounted_r[t] = running_add
         return discounted_r
 
+    def getExperienes(self):
+        '''Should return all experiences. 
+        Useful when we have multiple worker agents.
+        '''
+        return [self.actions, self.states, self.rewards, self.valuePreds] 
+
+    def appendExperiences(self, experiences):
+        '''Should append experiences from getExperiences().
+        Useful when we have multiple worker agents.
+        '''
+        self.actions, self.states, self.rewards, self.valuePreds = experiences
+
+class A3C_SingleWorker(A2C_OneGame):
+    '''Like the A3C, but it does not update the model.
+    It only plays the game.
+    '''
+    self.done = False
+    def update(self, reward, done, info):
+        self.rewards.append(reward)
+        self.stepNumber += 1
+        if (self.stepNumber == self.nbSteps) or done:
+            self.done = True
 
 
 def responseWithSampleWeights(y, sampleWeights, nbClasses):
@@ -480,7 +620,7 @@ def testA2C():
 
     gym.undo_logger_setup() # Stop gym logging
     actionSpace = [2, 3]
-    agent = A2C_OneGame(2, 100, actionSpace, filename, resume=resume)
+    agent = A2C_OneGame(2, 1024, actionSpace, filename, resume=resume)
     game = Game('Pong-v0', agent, render=render, logfile='test.log')
     game.play()
 
