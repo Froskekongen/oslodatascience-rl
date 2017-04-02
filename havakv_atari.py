@@ -54,6 +54,46 @@ class Game(object):
                 self.logger.log(self.episode, self.rewardSum) # log progress
             self.observation = self._resetEpisode()
 
+class _GameSingleForMultiple(Game):
+    '''This class is similar to the Game class, but it used for playing multiple games.
+    It is created to be used with MultiGames.
+    '''
+    def step(self):
+        self.observation, reward, done, info = self.env.step(action)
+        self.rewardSum += reward
+
+
+    def step(self):
+        '''Step one frame in game.
+        Need to run setupGame before we can step.
+        '''
+        raise NotImplementedError
+
+        action = self.agent.drawAction(self.observation)
+
+        # step the environment and get new measurements
+        self.observation, reward, done, info = self.env.step(action)
+        self.rewardSum += reward
+        self.agent.update(reward, done, info) 
+        
+        if done: # an episode has finished
+            print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
+            if self.logger is not None:
+                self.logger.log(self.episode, self.rewardSum) # log progress
+            self.observation = self._resetEpisode()
+
+
+class MultiGames(Game):
+    '''Play multiple games with a single agent.'''
+    def __init__(self, gameName, nbReplicates, agent, render=False, logfile=None):
+        super().__init__(gameName, agent, render, logfile)
+        self.nbReplicates = nbReplicates
+
+    def setuptGame(self):
+        raise NotImplementedError('This function is not used for multiple games')
+
+    def setupGames(self):
+        self.envs = [gym.make(self.gameName) for _ in range(nbReplicates)]
 
 
 class GameReplicates(object):
@@ -97,7 +137,7 @@ class GameReplicates(object):
 
 
 class MultipleAgents(object):
-    '''Class for holding multiple worker agents.
+    ''''Does nothing, but can possibly be used for distributed agents...
     The first agent will be used for updating the model, and the model will be sent
     to the others.
     '''
@@ -105,6 +145,7 @@ class MultipleAgents(object):
         self.nbReplicates = nbReplicates
         self.agentClass = agentClass
         self.kwargsAgent = kwargsAgent
+        raise NotImplementedError('Does nothing, but can possibly be used for distributed agents...')
 
     @property
     def workerAgents(self):
