@@ -32,6 +32,10 @@ class Game(GameAbstract):
 
 
 class GameForContainer(GameAbstract):
+    '''Play a game and store in container.
+    Should not be run alone, but by another object.
+    container: Object from Container class.
+    '''
     def __init__(self, gameName, container, logfile=None):
         self.gameName = gameName
         self.container = container
@@ -59,7 +63,7 @@ class GameForContainer(GameAbstract):
         self.container.appendStateActionReward(state, action, reward)
         self.done = done
         
-        if done: # an episode has finished
+        if self.done: # an episode has finished
             if self.logger is not None:
                 self.logger.log(self.episode, self.rewardSum) # log progress
             self.observation = self.resetEpisode()
@@ -134,7 +138,6 @@ class Agent(object):
         self.kwargsContainer = kwargsContainer
         self.containers = [self.containerClass(**self.kwargsContainer) for _ in self.nbContainers]
 
-
     def update(self, reward, done, info):
         '''Is called to receive the feedback from the environment.
         It has three tasks:
@@ -169,17 +172,12 @@ class Agent(object):
         '''Returns all last states.'''
         return [container.currentState() for container in self.containers]
 
-    # def _appendActions(self, actions):
-        # '''Store actions in containers.'''
-        # for container, action in zip(self.containers, actions):
-            # container.actions.append(action)
-
     def drawActions(self):
         '''Draw an action for each container.'''
         # self.preprocess(observation)
         preds = self.predict(self.currentStates())
         actions = self.policy(preds)
-        # self._appendActions(actions)
+        Need to make into list!!!!!
         return actions
 
     def predict(self, states):

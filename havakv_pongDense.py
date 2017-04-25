@@ -17,12 +17,12 @@ gym.undo_logger_setup() # Stop gym logging
 
 resume = False # resume from previous checkpoint?
 render = False
-# resume = True # resume from previous checkpoint?
-# render = True
+resume = True # resume from previous checkpoint?
+render = True
 
 # model initialization 
-# model_file_name = 'pong_gym_keras_mlp_full_batch.h5'
-model_file_name = 'test.h5'
+model_file_name = 'pong_gym_keras_mlp_full_batch.h5'
+# model_file_name = 'test.h5'
 
 # hyperparameters
 H = 200 # number of hidden layer neurons
