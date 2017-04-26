@@ -63,7 +63,7 @@ class GameForContainer(GameAbstract):
         # self.container.addObservation(observation)
         self.rewardSum += reward
         # self.container.addReward(reward)
-        self.addEnvStep(observation, reward, done, info)
+        self.container.addEnvStep(observation, reward, done, info)
         self.done = done
         
         if self.done: # an episode has finished
@@ -92,7 +92,7 @@ class MultiGame(GameAbstract):
 
     def step(self):
         actions = self.agent.drawActions()
-        self.step(actions)
+        self._step(actions)
 
     def play(self):
         while True:
@@ -130,12 +130,13 @@ class Container(object):
 
     def addEnvStep(self, observation, reward, done, info):
         '''Add new data from environment.'''
-        self.addObservation(observation)
         self.rewards.append(reward)
         self.dones.append(done)
         self.infos.append(info)
         if done:
             self.episode += 1
+        else:
+            self.addObservation(observation)
 
     def _preprocessObservation(self, observation):
         '''Make state from a new observation and append to states.'''
@@ -242,7 +243,7 @@ class StandardAtari_Container(Container):
 
     def currentState(self):
         if len(self.states) == 0:
-            return _lastStateBeforeUpdate
+            return self._lastStateBeforeUpdate
         return self.states[-1]
 
     def _preprocessObservation(self, observation):
@@ -272,7 +273,7 @@ class StandardAtari_Container(Container):
         running_add = 0
         for t in reversed(range(0, r.size)):
             if r[t] != 0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
-            running_add = running_add * self.gamma + r[t]
+            running_add = running_add * self.agent.gamma + r[t]
             discounted_r[t] = running_add
         return discounted_r
 
@@ -360,13 +361,15 @@ class A2C(StandardAtari):
     learningRate = 1e-4
     decayRate = 0.99 # decay factor for RMSProp leaky sum of grad^2
     containerClass = A2C_Container
+    batchSize = 1028
 
     def __init__(self, nbReplicates, actionSpace, modelFileName, resume=False, setupModel=True, **kwargsContainer):
-        super().__init__()
+        super().__init__(nbReplicates, **kwargsContainer)
         self.actionSpace = actionSpace
         self.nbActionClasses = len(actionSpace)
         self.modelFileName = modelFileName
         self.resume = resume
+        self.nbUpdates = 0
 
         if setupModel:
             'How is setupModel different from resume?'
@@ -375,14 +378,22 @@ class A2C(StandardAtari):
         self.episode = 0
         self.stepNumber = 0 # iterates every frame
 
-    def resetMemory(self):
-        '''Resets actions, states, rewards, and predicted values.'''
-        super().resetMemory()
-        self.valuePreds = []
+    # def resetMemory(self):
+        # '''Resets actions, states, rewards, and predicted values.'''
+        # super().resetMemory()
+        # self.valuePreds = []
 
     def _makeActionClassMapping(self):
         self.action2Class = {action: i for i, action in enumerate(self.actionSpace)}
         self.class2Action = {i: action for i, action in enumerate(self.actionSpace)}
+
+    @property
+    def fullBatch(self):
+        '''True when we have enough data to make an update.'''
+        sizeOfData = sum([len(container.actions) for container in self.containers])
+        if sizeOfData < self.batchSize:
+            return False
+        return True
 
     def setupModel(self):
         '''Setup models:
@@ -433,14 +444,15 @@ class A2C(StandardAtari):
         actionPreds, valuePreds = self.predict(self.currentStates())
         self._addValuePredsToAllContainers(valuePreds)
         actions = self.policy(actionPreds)
-        assert False, 'Change policy to multiple preds'
         self._addActionsToAllContainers(actions)
         return actions
 
     def policy(self, pred):
-        sampleClass = np.random.choice(range(self.nbActionClasses), 1, p=pred[0])[0]
-        action = self.class2Action[sampleClass]
-        return action
+        actions = []
+        for p in pred:
+            sampleClass = np.random.choice(range(self.nbActionClasses), 1, p=p)[0]
+            actions.append(self.class2Action[sampleClass])
+        return np.stack(actions)
 
     def update(self):
         '''Run to do a gradient update of our model.
@@ -455,23 +467,30 @@ class A2C(StandardAtari):
         for container in self.containers:
             container.reset()
 
-        if self.nbUpdates % 10 == 0: 
+        if self.nbUpdates % 30 == 0: 
             self.model.save(self.modelFileName)
 
         self.nbUpdates += 1
+        print(self.nbUpdates)
         
 
     def getDiscountedRewards(self):
         '''Returns discounted rewards from containers.'''
         dr = [container.discountedRewards() for container in self.containers]
-        assert False, 'Need to flatten into numpy array'
-        return dr
+        return np.concatenate(dr)
 
-    def getStates(self):
-        '''Return all states.'''
+    def getStates(self, removeStatesWithoutActions=True):
+        '''Return all states.
+        removeStatesWithoutActions: Removes the current state if we have not taken
+            an action for it yet.
+        '''
         states = []
         for container in self.containers:
-            states.extend(container.states)
+            s = container.states
+            if removeStatesWithoutActions and (len(container.actions) < len(s)):
+                states.extend(s[:-1])
+            else:
+                states.extend(s)
         return np.vstack(states)
 
     def getActions(self):
@@ -493,8 +512,8 @@ class A2C(StandardAtari):
         # discountedRewards = self._discountRewards(rewards)
         discountedRewards = self.getDiscountedRewards()
         # X = np.vstack(self.states)
-        X = np.vstack(self.getStates())
-        fakeLabels = [self.action2Class[action] for action in self.getActions()]
+        X = self.getStates()
+        fakeLabels = [self.action2Class[action] for action in self.getActions().flatten()]
         Y = np.vstack(fakeLabels)
         # valuePreds = np.vstack(self.valuePreds)
         valuePreds = self.getValuePreds()
