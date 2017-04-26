@@ -24,23 +24,17 @@ class GameAbstract(object):
         raise NotImplementedError
 
 
-# class Game(GameAbstract):
-    # '''Regular game class for playing with an agent.'''
-    # def __init__(self, gameName, agent, render=False, logfile=None):
-        # super().__init__(gameName, agent, logfile)
-        # self.render = render
-
-
 class GameForContainer(GameAbstract):
     '''Play a game and store in container.
     Should not be run alone, but by another object.
     container: Object from Container class.
     '''
-    def __init__(self, gameName, container, logfile=None):
+    def __init__(self, gameName, container, logfile=None, render=False):
         self.gameName = gameName
         self.container = container
         self.logfile = logfile
         self.logger = LogPong(self.logfile) if self.logfile is not None else None
+        self.render = render
 
     def resetEpisode(self):
         self.rewardSum = 0
@@ -58,6 +52,7 @@ class GameForContainer(GameAbstract):
         '''Step one frame in game.
         Need to run setup() before we can step.
         '''
+        if self.render: self.env.render()
         # step the environment and get new measurements
         observation, reward, done, info = self.env.step(action)
         # self.container.addObservation(observation)
@@ -82,7 +77,7 @@ class MultiGame(GameAbstract):
     def setup(self):
         self.games = []
         for container in self.agent.containers:
-            self.games.append(GameForContainer(self.gameName, container, None))
+            self.games.append(GameForContainer(self.gameName, container, self.logfile))
         for game in self.games:
             game.setup()
 
@@ -332,13 +327,23 @@ class A2C_Container(StandardAtari_Container):
         '''Add value predictions.'''
         self.valuePreds.append(valuePred)
 
+    # def reset(self):
+        # if self.isDone:
+            # self.setup()
+        # else:
+            # lastStateBeforeUpdate = self.currentState()
+            # self.setup()
+            # self._lastStateBeforeUpdate = lastStateBeforeUpdate
+
     def reset(self):
-        if self.isDone:
-            self.setup()
-        else:
-            lastStateBeforeUpdate = self.currentState()
-            self.setup()
-            self._lastStateBeforeUpdate = lastStateBeforeUpdate
+        '''Reset states. 
+        We save the last state as it is either the previous step, or
+        we are done and we have already loaded the first frame 
+        (see step functions).
+        '''
+        lastStateBeforeUpdate = self.currentState()
+        self.setup()
+        self._lastStateBeforeUpdate = lastStateBeforeUpdate
 
 
 
@@ -355,13 +360,13 @@ class A2C(StandardAtari):
     setupModel:?????????
     '''
 
+    batchSize = 1028 # Observations before gradient update
     gamma = 0.99 # discount factor for reward
     mseBeta = 0.5 # Weighting of value mse loss.
     entropyBeta = 0.1 # Weighting of entropy loss.
     learningRate = 1e-4
     decayRate = 0.99 # decay factor for RMSProp leaky sum of grad^2
     containerClass = A2C_Container
-    batchSize = 1028
 
     def __init__(self, nbReplicates, actionSpace, modelFileName, resume=False, setupModel=True, **kwargsContainer):
         super().__init__(nbReplicates, **kwargsContainer)
@@ -471,7 +476,7 @@ class A2C(StandardAtari):
             self.model.save(self.modelFileName)
 
         self.nbUpdates += 1
-        print(self.nbUpdates)
+        # print(self.nbUpdates)
         
 
     def getDiscountedRewards(self):
@@ -487,8 +492,10 @@ class A2C(StandardAtari):
         states = []
         for container in self.containers:
             s = container.states
-            if removeStatesWithoutActions and (len(container.actions) < len(s)):
-                states.extend(s[:-1])
+            nbActions = len(container.actions)
+            nbStates = len(s)
+            if removeStatesWithoutActions and (nbActions < nbStates):
+                states.extend(s[:-(nbStates - nbActions)])
             else:
                 states.extend(s)
         return np.vstack(states)
