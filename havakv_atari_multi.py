@@ -17,14 +17,14 @@ class GameAbstract(object):
         self.gameName = gameName
         self.agent = agent
         self.logfile = logfile
-        self.logger = LogPong(self.logfile) if self.logfile is not None else None
+        # self.logger = LogPong(self.logfile) if self.logfile is not None else None
 
     def setup(self):
         '''Set up environments.'''
         raise NotImplementedError
 
 
-class GameForContainer(GameAbstract):
+class GameForContainer(object):
     '''Play a game and store in container.
     Should not be run alone, but by another object.
     container: Object from Container class.
@@ -64,6 +64,7 @@ class GameForContainer(GameAbstract):
         if self.done: # an episode has finished
             if self.logger is not None:
                 self.logger.log(self.episode, self.rewardSum) # log progress
+            print(self.episode, self.rewardSum)
             self.observation = self.resetEpisode()
             self.container.addObservation(self.observation)
 
@@ -218,10 +219,16 @@ class Agent(object):
         '''Returns all last states.'''
         return [container.currentState() for container in self.containers]
 
+    def _addActionsToAllContainers(self, actions):
+        '''Store actions to all the containers.'''
+        for container, action in zip(self.containers, actions):
+            container.addAction(action)
+
     def drawActions(self):
         '''Draw an action for each container.'''
         preds = self.predict(self.currentStates())
         actions = self.policy(preds)
+        self._addActionsToAllContainers(actions)
         return actions
 
     def predict(self, states):
@@ -438,11 +445,6 @@ class A2C(StandardAtari):
         for container, vp in zip(self.containers, valuePreds):
             container.addValuePred(vp)
 
-    def _addActionsToAllContainers(self, actions):
-        '''Store actions to all the containers.'''
-        for container, action in zip(self.containers, actions):
-            container.addAction(action)
-
     def drawActions(self):
         '''Draw an action based on the new observation.'''
         actionPreds, valuePreds = self.predict(self.currentStates())
@@ -641,8 +643,10 @@ class KarpathyPolicyPong(Agent):
     '''Karpathy dense policy network.'''
     H = 200 # number of hidden layer neurons
     batch_size = 10 # every how many episodes to do a param update?
-    batchSize = 1024
+    # batchSize = 1024*10
+    batchSize = 1024*50
     learning_rate = 1e-3
+    # learning_rate = 1e-4
     gamma = 0.99 # discount factor for reward
     decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
     D = 80 * 80 # input dimensionality: 80x80 grid
@@ -652,6 +656,7 @@ class KarpathyPolicyPong(Agent):
         super().__init__(nbReplicates)
         self.modelFileName = modelFileName
         self.resume = resume
+        self.nbUpdates = 0
         # self.prev_x = None
         self.setupModel()
 
@@ -687,7 +692,7 @@ class KarpathyPolicyPong(Agent):
                 # self.updateModel()
 
     def update(self):
-        '''Run to do a gradient update of our model.
+        '''Run to do a gradient update of our model
         We use data from all containers.
         '''
         self.updateModel()
@@ -696,7 +701,8 @@ class KarpathyPolicyPong(Agent):
             container.reset()
 
         if self.nbUpdates % 30 == 0: 
-            self.model.save_weights(self.modelFileName)
+            self.model.save(self.modelFileName)
+            # self.model.save_weights(self.modelFileName)
 
         self.nbUpdates += 1
 
@@ -705,38 +711,52 @@ class KarpathyPolicyPong(Agent):
         removeStatesWithoutActions: Removes the current state if we have not taken
             an action for it yet.
         '''
+        idxLastResponse = self.idxLastResponse()
         states = []
-        for container in self.containers:
+        for container, idx in zip(self.containers, idxLastResponse):
             s = container.states
             nbActions = len(container.actions)
             nbStates = len(s)
             if removeStatesWithoutActions and (nbActions < nbStates):
-                states.extend(s[:-(nbStates - nbActions)])
+                states.extend(s[:-(nbStates - nbActions)][:idx])
             else:
-                states.extend(s)
+                states.extend(s[:idx])
         return np.vstack(states)
 
     def getActions(self):
         '''Return all actions.'''
+        idxLastResponse = self.idxLastResponse()
         actions = []
-        for container in self.containers:
-            actions.extend(container.actions)
+        for container, idx in zip(self.containers, idxLastResponse):
+            actions.extend(container.actions[:idx])
         return np.vstack(actions)
+
+    def idxLastResponse(self):
+        '''Return all actions.'''
+        idx = []
+        for container in self.containers:
+            r = np.array(container.rewards)
+            idx.append(np.arange(len(r))[r!=0][-1]+1)
+        return idx
 
     def getDiscountedRewards(self):
         '''Returns discounted rewards from containers.'''
-        dr = [container.discountedRewards() for container in self.containers]
+        idxLastResponse = self.idxLastResponse()
+        dr = [container.discountedRewards()[:idx] for container, idx in zip(self.containers, idxLastResponse)]
         return np.concatenate(dr)
 
     def updateModel(self):
+        print('Updating model...')
         discountedRewards = self.getDiscountedRewards()
+        X = self.getStates()
+        fakeLabels = [1 if action == 2 else 0 for action in self.getActions().flatten()]
+        Y = np.vstack(fakeLabels)
+
+
         discountedRewards -= np.mean(discountedRewards)
         discountedRewards /= np.std(discountedRewards)
 
-        X = self.getStates()
         # fakeLabels = [self.action2Class[action] for action in self.getActions().flatten()]
-        fakeLabels = [1 if action == 2 else 0 for action in self.getActions().flatten()]
-        Y = np.vstack(fakeLabels)
         # actionValues = discountedRewards - valuePreds
         # Y = responseWithSampleWeights(Y, actionValues, self.nbActionClasses)
         # self.model.train_on_batch(X, [Y, discountedRewards])
