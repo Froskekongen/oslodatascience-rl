@@ -81,6 +81,13 @@ def get_dense_model():
     return model
 
 def run_episodes(thr):
+    """
+    Main issue - make environments that are stateful and can run for some
+    iterations (say 4). Make fast gradient updates based on a few iterations
+    on many agents.
+
+    It's important to get the environments to keep the state.
+    """
     n_episodes=3
     D=80*80
     model=get_dense_model()
