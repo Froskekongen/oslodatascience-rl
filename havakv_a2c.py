@@ -28,16 +28,14 @@ class GameForContainer(object):
 
         self.env = gym.make(self.gameName)
         self.episode = 0 
-        self.observation = self.resetEpisode()
-        self.container.addObservation(self.observation)
+        self.resetEpisode()
 
     def resetEpisode(self):
         '''Reset when an episode has finished (the game passes done == True).'''
         self.rewardSum = 0
         self.episode += 1
         observation = self.env.reset()
-        return observation
-
+        self.container.addObservation(observation)
 
     def step(self, action):
         '''Step one frame in game.
@@ -54,8 +52,7 @@ class GameForContainer(object):
             # if self.logger is not None:
                 # self.logger.log(self.episode, self.rewardSum) # log progress
             print(self.episode, self.rewardSum)
-            self.observation = self.resetEpisode()
-            self.container.addObservation(self.observation)
+            self.resetEpisode()
 
 
 class MultiGame(object):
@@ -149,6 +146,8 @@ class Container(object):
     @property
     def isDone(self):
         '''If the last environment step returned done.'''
+        if len(self.dones) == 0:
+            return False
         if self.dones[-1]:
             return True
         return False
@@ -215,94 +214,6 @@ class Agent(object):
 
 
 
-class StandardAtari_Container(Container):
-    def setup(self):
-        '''Setup information in container.'''
-        super().setup()
-        self._lastStateBeforeUpdate = None
-
-    @property
-    def currentState(self):
-        if len(self.states) == 0:
-            return self._lastStateBeforeUpdate
-        return self.states[-1]
-
-    def _preprocessObservation(self, observation):
-        '''Make state from a new observation and append to states.
-        '''
-        observation = self.preprocessImage(observation)
-        newState = np.zeros((1, self.agent.D, self.agent.D, self.agent.nbImgInState))
-        if len(self.states) != 0:
-            newState[..., :-1] = self.currentState[..., 1:]
-        elif self._lastStateBeforeUpdate is not None:
-            newState[..., :-1] = self._lastStateBeforeUpdate[..., 1:]
-        newState[..., -1] = observation
-        self.states.append(newState)
-
-    def preprocessImage(self, img):
-        '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
-        img = rgb2gray(img) # compute luminance 210x160
-        img = resize(img, (self.agent.D, self.agent.D), mode='constant') # resize image
-        return img
-
-    def discountedRewards(self):
-        '''Return the discounted rewards.
-        Only works for pong as of now!!!!!!!!!!!!11
-        '''
-        """Take 1D float array of rewards and compute discounted reward """
-        r = np.vstack(self.rewards)
-        discounted_r = np.zeros_like(r)
-        running_add = 0
-        for t in reversed(range(0, r.size)):
-            if r[t] != 0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
-            running_add = running_add * self.agent.gamma + r[t]
-            discounted_r[t] = running_add
-        return discounted_r
-
-
-
-
-
-class StandardAtari(Agent):
-    '''Abstract class for the standard atari models
-    Includes:
-        - preprocessing of atari images.
-        - keras model.
-    '''
-    D = 84 # Scaled images are 84x84.
-    nbImgInState = 4 # We pass the last 4 images as a state.
-    containerClass = StandardAtari_Container
-
-    def setupModel(self):
-        '''Not Implemented (Just a suggestion for structure): 
-        Set up the standard DeepMind convnet in Keras.
-            modelInputShape = (self.D, self.D, self.nbImgInState)
-            self.model = self.deepMindAtariNet(self.nbClasses, modelInputShape, True)
-            model.compile(...)
-        '''
-        raise NotImplementedError
-
-    @staticmethod
-    def deepMindAtariNet(nbClasses, inputShape, includeTop=True):
-        '''Set up the 3 conv layer keras model.
-        classes: Number of outputs.
-        inputShape: The input shape without the batch size.
-        includeTop: If you only want the whole net, or just the convolutions.
-        '''
-        inp = Input(shape=inputShape)
-        x = Conv2D(32, 8, 8, subsample=(4, 4), activation='relu', border_mode='same', name='conv1')(inp)
-        x = Conv2D(64, 4, 4, subsample=(2, 2), activation='relu', border_mode='same', name='conv2')(x)
-        x = Conv2D(64, 3, 3, activation='relu', border_mode='same', name='conv3')(x)
-        if includeTop:
-            x = Flatten(name='flatten')(x)
-            x = Dense(512, activation='relu', name='dense1')(x)
-            out = Dense(nbClasses, activation='softmax', name='output')(x)
-        else:
-            out = x
-        model = Model(inp, out)
-        return model
-
-
 class A2C_Container(Container):
     '''Container for the A2C agent.''' 
     def setup(self):
@@ -323,24 +234,31 @@ class A2C_Container(Container):
         '''
         lastStateBeforeUpdate = self.currentState
         self.setup()
-        self._lastStateBeforeUpdate = lastStateBeforeUpdate
-        assert False, 'Fix this mess'
-        assert False, "When updating on done==True, we need to put back the last observation. See self.container.addObservation(self.observation)"
+        self.states.append(lastStateBeforeUpdate)
+        # We add the state as it is either the previous state,
+        #   or the first state after resetting the game environment.
+        #   See GameForContainer.step and Container.addEnvStep.
 
-    @property
-    def currentState(self):
-        if len(self.states) == 0:
-            return self._lastStateBeforeUpdate
-        return self.states[-1]
+        # self._lastStateBeforeUpdate = lastStateBeforeUpdate
+        # lastStateBeforeUpdate = self.currentState
+        # self.setup()
+        # self._lastStateBeforeUpdate = lastStateBeforeUpdate
+        # assert False, 'Fix this mess'
+        # assert False, "When updating on done==True, we need to put back the last observation. See self.container.addObservation(self.observation)"
+
+    # @property
+    # def currentState(self):
+        # if len(self.states) == 0:
+            # return self._lastStateBeforeUpdate
+        # return self.states[-1]
 
     def _preprocessObservation(self, observation):
         '''Make state from a new observation and append to states.'''
         observation = self._preprocessImage(observation)
         newState = np.zeros((1, self.agent.D, self.agent.D, self.agent.nbImgInState))
-        if len(self.states) != 0:
+        isFirstState = self.isDone # isDone is true when we reset the environment.
+        if (len(self.states) != 0) or isFirstState: 
             newState[..., :-1] = self.currentState[..., 1:]
-        elif self._lastStateBeforeUpdate is not None:
-            newState[..., :-1] = self._lastStateBeforeUpdate[..., 1:]
         newState[..., -1] = observation
         return newState
 
@@ -584,6 +502,11 @@ class A2C_withoutEntropy(A2C):
     entropyBeta = 0
 
 
+
+#-------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------------
 
 class Karpathy_container(Container):
 
