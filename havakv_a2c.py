@@ -133,13 +133,14 @@ class Container(object):
         else:
             self.addObservation(observation)
 
-    def preprocessObservation(self, observation):
+    def _preprocessObservation(self, observation):
         '''Make state from a new observation and append to states.'''
         raise NotImplementedError
 
     def addObservation(self, observation):
         '''Adds observation to container as a state.'''
-        self.preprocessObservation(observation)
+        state = self._preprocessObservation(observation)
+        self.states.append(state)
 
     def addAction(self, action):
         '''Add action to container.'''
@@ -176,8 +177,15 @@ class Agent(object):
         self.kwargsContainer = kwargsContainer
         self.containers = [self.containerClass(self, **self.kwargsContainer) for _ in range(self.nbReplicates)]
 
-    def update(self, reward, done, info):
-        '''Update the model.'''
+    def drawActions(self):
+        '''Draw an action for each container.'''
+        preds = self.predict(self.currentStates)
+        actions = self.policy(preds)
+        self._addActionsToAllContainers(actions)
+        return actions
+
+    def policy(self, pred):
+        '''Returns an action based on given predictions.'''
         raise NotImplementedError
 
     @property
@@ -185,8 +193,8 @@ class Agent(object):
         '''True when we have enough data to make an update.'''
         raise NotImplementedError
 
-    def policy(self, pred):
-        '''Returns an action based on given predictions.'''
+    def update(self, reward, done, info):
+        '''Update the model.'''
         raise NotImplementedError
 
     def predict(self, states):
@@ -204,12 +212,6 @@ class Agent(object):
         for container, action in zip(self.containers, actions):
             container.addAction(action)
 
-    def drawActions(self):
-        '''Draw an action for each container.'''
-        preds = self.predict(self.currentStates)
-        actions = self.policy(preds)
-        self._addActionsToAllContainers(actions)
-        return actions
 
 
 
@@ -227,8 +229,6 @@ class StandardAtari_Container(Container):
 
     def _preprocessObservation(self, observation):
         '''Make state from a new observation and append to states.
-
-        problem!!!!! We don't handle first new frame after done. It use the last state!!!!
         '''
         observation = self.preprocessImage(observation)
         newState = np.zeros((1, self.agent.D, self.agent.D, self.agent.nbImgInState))
@@ -303,12 +303,13 @@ class StandardAtari(Agent):
         return model
 
 
-class A2C_Container(StandardAtari_Container):
-    '''Container for the StandardAtari agent.''' 
+class A2C_Container(Container):
+    '''Container for the A2C agent.''' 
     def setup(self):
         '''Setup information in container.'''
         super().setup()
         self.valuePreds = []
+        self._lastStateBeforeUpdate = None
 
     def addValuePred(self, valuePred):
         '''Add value predictions.'''
@@ -323,9 +324,44 @@ class A2C_Container(StandardAtari_Container):
         lastStateBeforeUpdate = self.currentState
         self.setup()
         self._lastStateBeforeUpdate = lastStateBeforeUpdate
+        assert False, 'Fix this mess'
+        assert False, "When updating on done==True, we need to put back the last observation. See self.container.addObservation(self.observation)"
 
+    @property
+    def currentState(self):
+        if len(self.states) == 0:
+            return self._lastStateBeforeUpdate
+        return self.states[-1]
 
+    def _preprocessObservation(self, observation):
+        '''Make state from a new observation and append to states.'''
+        observation = self._preprocessImage(observation)
+        newState = np.zeros((1, self.agent.D, self.agent.D, self.agent.nbImgInState))
+        if len(self.states) != 0:
+            newState[..., :-1] = self.currentState[..., 1:]
+        elif self._lastStateBeforeUpdate is not None:
+            newState[..., :-1] = self._lastStateBeforeUpdate[..., 1:]
+        newState[..., -1] = observation
+        return newState
 
+    def _preprocessImage(self, img):
+        '''Compute luminance (grayscale in range [0, 1]) and resize to (D, D).'''
+        img = rgb2gray(img) # compute luminance 210x160
+        img = resize(img, (self.agent.D, self.agent.D), mode='constant') # resize image
+        return img
+
+    def discountedRewards(self):
+        '''Return the discounted rewards.
+        Only works for pong as of now!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        '''
+        r = np.vstack(self.rewards)
+        discounted_r = np.zeros_like(r)
+        running_add = 0
+        for t in reversed(range(0, r.size)):
+            if r[t] != 0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
+            running_add = running_add * self.agent.gamma + r[t]
+            discounted_r[t] = running_add
+        return discounted_r
 
 
 
