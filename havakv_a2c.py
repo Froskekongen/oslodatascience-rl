@@ -26,28 +26,27 @@ class GameForContainer(object):
         # self.logger = LogPong(self.logfile) if self.logfile is not None else None
         self.render = render
 
-    def resetEpisode(self):
-        self.rewardSum = 0
-        self.episode += 1
-        observation = self.env.reset()
-        return observation
-
-    def setup(self):
         self.env = gym.make(self.gameName)
         self.episode = 0 
         self.observation = self.resetEpisode()
         self.container.addObservation(self.observation)
 
+    def resetEpisode(self):
+        '''Reset when an episode has finished (the game passes done == True).'''
+        self.rewardSum = 0
+        self.episode += 1
+        observation = self.env.reset()
+        return observation
+
+
     def step(self, action):
         '''Step one frame in game.
         Need to run setup() before we can step.
+        action: The action that should be passed to the environment.
         '''
         if self.render: self.env.render()
-        # step the environment and get new measurements
         observation, reward, done, info = self.env.step(action)
-        # self.container.addObservation(observation)
         self.rewardSum += reward
-        # self.container.addReward(reward)
         self.container.addEnvStep(observation, reward, done, info)
         self.done = done
         
@@ -60,7 +59,11 @@ class GameForContainer(object):
 
 
 class MultiGame(object):
-    '''Used for playing multiple games simultaneously, on one core.'''
+    '''Used for playing multiple games simultaneously (all on one core).
+    gameName: Name of game, e.g. Pong-v0.
+    agent: An Agent object.
+    render: Render the game played.
+    '''
     def __init__(self, gameName, agent, logfile=None, render=False):
         self.gameName = gameName
         self.agent = agent
@@ -69,37 +72,36 @@ class MultiGame(object):
         self.nbReplicates = self.agent.nbReplicates
         self.render = render
 
-    def setup(self):
         self.games = []
         for container in self.agent.containers:
             self.games.append(GameForContainer(self.gameName, container, self.logfile, self.render))
-        for game in self.games:
-            game.setup()
 
     def _step(self, actions):
+        '''Step through all games.
+        actions: Iterable with one action for each game.
+        '''
         for game, action in zip(self.games, actions):
             game.step(action)
 
     def step(self):
+        '''Draw actions, step environment, and potentially update agent.'''
         actions = self.agent.drawActions()
         self._step(actions)
+        if self.agent.fullBatch: 
+            self.agent.update()
 
     def play(self):
+        '''Play the game. Run step().'''
         while True:
-            # actions = self.agent.drawActions()
-            # self.step(actions)
             self.step()
-            if self.agent.fullBatch: 
-                self.agent.update()
-
 
 
 
 class Container(object):
-    '''Container for holding game info.  Typically states, actions and rewards.
+    '''Abstract class for holding and handling game info. Typically states, actions and rewards.
     Get observations and rewards from game, and actions from agent.
-
-    agent: The agent that use the container.
+    agent: The agent that used date from the container. 
+        Is used to get e.g. dimension of state.
     '''
     def __init__(self, agent):
         self.agent = agent
@@ -107,13 +109,16 @@ class Container(object):
         self.episode = 0
 
     def setup(self):
-        '''Setup information in container.'''
+        '''Setup information in container.
+        Also used to reset memory.
+        '''
         self.actions = [] 
         self.states= [] 
         self.rewards = []
         self.dones = []
         self.infos = []
 
+    @property
     def currentState(self):
         '''Returns last state.'''
         return self.states[-1]
@@ -128,17 +133,16 @@ class Container(object):
         else:
             self.addObservation(observation)
 
-    def _preprocessObservation(self, observation):
+    def preprocessObservation(self, observation):
         '''Make state from a new observation and append to states.'''
         raise NotImplementedError
 
     def addObservation(self, observation):
-        self._preprocessObservation(observation)
-
-    # def addReward(self, reward):
-        # self.rewards.append(reward)
+        '''Adds observation to container as a state.'''
+        self.preprocessObservation(observation)
 
     def addAction(self, action):
+        '''Add action to container.'''
         self.actions.append(action)
 
     @property
@@ -149,24 +153,23 @@ class Container(object):
         return False
 
     def reset(self):
-        '''Reset container after gradient update.'''
+        '''Reset container after gradient update.
+        Typically calls setup function.
+        '''
         raise NotImplementedError
-
-
 
 
 class Agent(object):
     '''Abstract class for an agent.
-    An Agent should implement:
-        - model: typically a keras model object.
-        - update: update agent after every response (handle response form env. and call updataModel method).
-        - preprocess: preprocess observation from environment. Called by drawAction.
-        - policy: give an action based on predictions.
-        - updateModel: update the model object.
+    An agent consist of: 
+        - containers for handling the data.
+        - a model: typically a keras model object.
+
+    nbReplicates: Number of containers the agent should hold.
     '''
 
     model = NotImplemented # object for holding the model.
-    containerClass = NotImplemented 
+    containerClass = NotImplemented # Class type for storing data.
 
     def __init__(self, nbReplicates=1, **kwargsContainer):
         self.nbReplicates = nbReplicates
@@ -174,17 +177,8 @@ class Agent(object):
         self.containers = [self.containerClass(self, **self.kwargsContainer) for _ in range(self.nbReplicates)]
 
     def update(self, reward, done, info):
-        '''Is called to receive the feedback from the environment.
-        It has three tasks:
-            - store relevant feedback
-            - update model if appropriate
-            - handle end of game (e.g. reset some states)
-        '''
+        '''Update the model.'''
         raise NotImplementedError
-
-    # def preprocess(self, observation):
-        # '''Preprocess observation, and typically store in states list'''
-        # raise NotImplementedError
 
     @property
     def fullBatch(self):
@@ -195,22 +189,15 @@ class Agent(object):
         '''Returns an action based on given predictions.'''
         raise NotImplementedError
 
-    def updateModel(self):
-        '''Should do all work with updating weights.'''
-        raise NotImplementedError
+    def predict(self, states):
+        '''Returns predictions based on give states.'''
+        states = np.vstack(states)
+        return self.model.predict(states)
 
-    def setupModel(self):
-        '''Function for setting up the self.model object'''
-        raise NotImplementedError
-    
-    # def resetExperiences(self):
-        # '''Resetting containers after updating the model.'''
-        # for container in self.containers:
-            # container.reset()
-
+    @property
     def currentStates(self):
-        '''Returns all last states.'''
-        return [container.currentState() for container in self.containers]
+        '''Gives the last state from each container.'''
+        return [container.currentState for container in self.containers]
 
     def _addActionsToAllContainers(self, actions):
         '''Store actions to all the containers.'''
@@ -219,15 +206,11 @@ class Agent(object):
 
     def drawActions(self):
         '''Draw an action for each container.'''
-        preds = self.predict(self.currentStates())
+        preds = self.predict(self.currentStates)
         actions = self.policy(preds)
         self._addActionsToAllContainers(actions)
         return actions
 
-    def predict(self, states):
-        '''Returns predictions based on give states.'''
-        states = np.vstack(states)
-        return self.model.predict(states)
 
 
 class StandardAtari_Container(Container):
@@ -236,6 +219,7 @@ class StandardAtari_Container(Container):
         super().setup()
         self._lastStateBeforeUpdate = None
 
+    @property
     def currentState(self):
         if len(self.states) == 0:
             return self._lastStateBeforeUpdate
@@ -249,7 +233,7 @@ class StandardAtari_Container(Container):
         observation = self.preprocessImage(observation)
         newState = np.zeros((1, self.agent.D, self.agent.D, self.agent.nbImgInState))
         if len(self.states) != 0:
-            newState[..., :-1] = self.currentState()[..., 1:]
+            newState[..., :-1] = self.currentState[..., 1:]
         elif self._lastStateBeforeUpdate is not None:
             newState[..., :-1] = self._lastStateBeforeUpdate[..., 1:]
         newState[..., -1] = observation
@@ -330,21 +314,13 @@ class A2C_Container(StandardAtari_Container):
         '''Add value predictions.'''
         self.valuePreds.append(valuePred)
 
-    # def reset(self):
-        # if self.isDone:
-            # self.setup()
-        # else:
-            # lastStateBeforeUpdate = self.currentState()
-            # self.setup()
-            # self._lastStateBeforeUpdate = lastStateBeforeUpdate
-
     def reset(self):
         '''Reset states. 
         We save the last state as it is either the previous step, or
         we are done and we have already loaded the first frame 
         (see step functions).
         '''
-        lastStateBeforeUpdate = self.currentState()
+        lastStateBeforeUpdate = self.currentState
         self.setup()
         self._lastStateBeforeUpdate = lastStateBeforeUpdate
 
@@ -581,6 +557,7 @@ class Karpathy_container(Container):
         self._lastStateBeforeUpdate = None
         self.prev_x = None
 
+    @property
     def currentState(self):
         if len(self.states) == 0:
             return self._lastStateBeforeUpdate
@@ -626,7 +603,7 @@ class Karpathy_container(Container):
         we are done and we have already loaded the first frame 
         (see step functions).
         '''
-        lastStateBeforeUpdate = self.currentState()
+        lastStateBeforeUpdate = self.currentState
         self.setup()
         self._lastStateBeforeUpdate = lastStateBeforeUpdate
 
