@@ -54,138 +54,138 @@ class Game(object):
                 self.logger.log(self.episode, self.rewardSum) # log progress
             self.observation = self._resetEpisode()
 
-class _GameSingleForMultiple(Game):
-    '''This class is similar to the Game class, but it used for playing multiple games.
-    It is created to be used with MultiGames.
-    '''
-    def step(self):
-        self.observation, reward, done, info = self.env.step(action)
-        self.rewardSum += reward
+# class _GameSingleForMultiple(Game):
+    # '''This class is similar to the Game class, but it used for playing multiple games.
+    # It is created to be used with MultiGames.
+    # '''
+    # def step(self):
+        # self.observation, reward, done, info = self.env.step(action)
+        # self.rewardSum += reward
 
 
-    def step(self):
-        '''Step one frame in game.
-        Need to run setupGame before we can step.
-        '''
-        raise NotImplementedError
+    # def step(self):
+        # '''Step one frame in game.
+        # Need to run setupGame before we can step.
+        # '''
+        # raise NotImplementedError
 
-        action = self.agent.drawAction(self.observation)
+        # action = self.agent.drawAction(self.observation)
 
-        # step the environment and get new measurements
-        self.observation, reward, done, info = self.env.step(action)
-        self.rewardSum += reward
-        self.agent.update(reward, done, info) 
+        # # step the environment and get new measurements
+        # self.observation, reward, done, info = self.env.step(action)
+        # self.rewardSum += reward
+        # self.agent.update(reward, done, info) 
         
-        if done: # an episode has finished
-            print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
-            if self.logger is not None:
-                self.logger.log(self.episode, self.rewardSum) # log progress
-            self.observation = self._resetEpisode()
+        # if done: # an episode has finished
+            # print('ep %d: reward total was %f.' % (self.episode, self.rewardSum))
+            # if self.logger is not None:
+                # self.logger.log(self.episode, self.rewardSum) # log progress
+            # self.observation = self._resetEpisode()
 
 
-class MultiGames(Game):
-    '''Play multiple games with a single agent.'''
-    def __init__(self, gameName, nbReplicates, agent, render=False, logfile=None):
-        super().__init__(gameName, agent, render, logfile)
-        self.nbReplicates = nbReplicates
+# class MultiGames(Game):
+    # '''Play multiple games with a single agent.'''
+    # def __init__(self, gameName, nbReplicates, agent, render=False, logfile=None):
+        # super().__init__(gameName, agent, render, logfile)
+        # self.nbReplicates = nbReplicates
 
-    def setuptGame(self):
-        raise NotImplementedError('This function is not used for multiple games')
+    # def setuptGame(self):
+        # raise NotImplementedError('This function is not used for multiple games')
 
-    def setupGames(self):
-        self.envs = [gym.make(self.gameName) for _ in range(nbReplicates)]
+    # def setupGames(self):
+        # self.envs = [gym.make(self.gameName) for _ in range(nbReplicates)]
 
 
-class GameReplicates(object):
-    '''Play multiple replicates of the same game but NOT parallelized.
-    nbReplicates: Number of replicates.
-    gameName: The name of the game.
-    agents: A MultipleAgents object holding all agents.
-    logfile: 
-    '''
+# class GameReplicates(object):
+    # '''Play multiple replicates of the same game but NOT parallelized.
+    # nbReplicates: Number of replicates.
+    # gameName: The name of the game.
+    # agents: A MultipleAgents object holding all agents.
+    # logfile: 
+    # '''
     
-    def __init__(self, nbReplicates, gameName, agents, logfile=None):
-        self.nbReplicates = nbReplicates
-        self.gameName = gameName
-        self.agents = agents
-        self.logfile = logfile
-        self.logger = LogPong(self.logfile) if self.logfile is not None else None
+    # def __init__(self, nbReplicates, gameName, agents, logfile=None):
+        # self.nbReplicates = nbReplicates
+        # self.gameName = gameName
+        # self.agents = agents
+        # self.logfile = logfile
+        # self.logger = LogPong(self.logfile) if self.logfile is not None else None
 
-    def setupGames(self):
-        # Only one game are used for logging
-        self.games = [Game(self.gameName, self.agents.mainAgent, False, self.logfile)]
-        for agent in self.agents.workerAgents:
-            self.games.append(Game(self.gameName, agent, False, None))
+    # def setupGames(self):
+        # # Only one game are used for logging
+        # self.games = [Game(self.gameName, self.agents.mainAgent, False, self.logfile)]
+        # for agent in self.agents.workerAgents:
+            # self.games.append(Game(self.gameName, agent, False, None))
 
-        for game in self.games:
-            game.setupGame()
+        # for game in self.games:
+            # game.setupGame()
 
-    def step(self):
-        '''Step through all games.'''
-        for game in self.games:
-            if not game.agent.done: game.step()
+    # def step(self):
+        # '''Step through all games.'''
+        # for game in self.games:
+            # if not game.agent.done: game.step()
 
-    def play(self):
-        '''Play all games.'''
-        self.setupGames()
-        while True:
-            self.step()
-            # if all games are done
-            if False not in [game.agent.done for game in self.games]: 
-                self.agents.updateAgents()
+    # def play(self):
+        # '''Play all games.'''
+        # self.setupGames()
+        # while True:
+            # self.step()
+            # # if all games are done
+            # if False not in [game.agent.done for game in self.games]: 
+                # self.agents.updateAgents()
         
 
 
-class MultipleAgents(object):
-    ''''Does nothing, but can possibly be used for distributed agents...
-    The first agent will be used for updating the model, and the model will be sent
-    to the others.
-    '''
-    def __init__(self, nbReplicates, agentClass,  **kwargsAgent):
-        self.nbReplicates = nbReplicates
-        self.agentClass = agentClass
-        self.kwargsAgent = kwargsAgent
-        raise NotImplementedError('Does nothing, but can possibly be used for distributed agents...')
+# class MultipleAgents(object):
+    # ''''Does nothing, but can possibly be used for distributed agents...
+    # The first agent will be used for updating the model, and the model will be sent
+    # to the others.
+    # '''
+    # def __init__(self, nbReplicates, agentClass,  **kwargsAgent):
+        # self.nbReplicates = nbReplicates
+        # self.agentClass = agentClass
+        # self.kwargsAgent = kwargsAgent
+        # raise NotImplementedError('Does nothing, but can possibly be used for distributed agents...')
 
-    @property
-    def workerAgents(self):
-        return self.agents[1:]
+    # @property
+    # def workerAgents(self):
+        # return self.agents[1:]
 
-    @property
-    def mainAgent(self):
-        return self.agents[0]
+    # @property
+    # def mainAgent(self):
+        # return self.agents[0]
 
-    def setupAgents(self):
-        self.agents = [self.agentClass(**self.kwargsAgent) for _ in self.nbReplicates]
-        self.mainAgent.setupModel()
-        self.distributeModelToWorkers()
+    # def setupAgents(self):
+        # self.agents = [self.agentClass(**self.kwargsAgent) for _ in self.nbReplicates]
+        # self.mainAgent.setupModel()
+        # self.distributeModelToWorkers()
 
-    def updateAgents(self):
-        '''Update the model in the agents.'''
-        self.collectExperiences()
-        self.updateModelMainAgent()
-        self.distributeModelToWorkers()
-        self.resetExperiences()
-        raise NotImplementedError('Need to reset agents!!!!!!!!')
-        raise NotImplementedError('Need to take into account that we store last observatoin in observation list, making it longer.')
-        raise NotImplementedError('Set rewards if game not done')
+    # def updateAgents(self):
+        # '''Update the model in the agents.'''
+        # self.collectExperiences()
+        # self.updateModelMainAgent()
+        # self.distributeModelToWorkers()
+        # self.resetExperiences()
+        # raise NotImplementedError('Need to reset agents!!!!!!!!')
+        # raise NotImplementedError('Need to take into account that we store last observatoin in observation list, making it longer.')
+        # raise NotImplementedError('Set rewards if game not done')
 
-    def resetExperiences():
-        '''Reset experiences of the agents'''
-        raise NotImplementedError
+    # def resetExperiences():
+        # '''Reset experiences of the agents'''
+        # raise NotImplementedError
 
-    def collectExperiences(self):
-        for agent in self.workerAgents:
-            self.mainAgent.appendExperiences(agent.getExperiences())
+    # def collectExperiences(self):
+        # for agent in self.workerAgents:
+            # self.mainAgent.appendExperiences(agent.getExperiences())
 
-    def updateModelMainAgent(self):
-        '''Perform the update of the model in the mainAgent.'''
-        self.mainAgent.updateModel()
+    # def updateModelMainAgent(self):
+        # '''Perform the update of the model in the mainAgent.'''
+        # self.mainAgent.updateModel()
 
-    def distributeModelToWorkers(self):
-        '''Send the main model to the worker agents.'''
-        for agent in self.workerAgents:
-            agent.model = self.mainAgent.model
+    # def distributeModelToWorkers(self):
+        # '''Send the main model to the worker agents.'''
+        # for agent in self.workerAgents:
+            # agent.model = self.mainAgent.model
 
 
 
