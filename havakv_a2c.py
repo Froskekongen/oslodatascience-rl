@@ -224,10 +224,6 @@ class Agent(object):
         states = []
         for container in self.containers:
             st = container.states
-            # nbActions = len(container.actions)
-            # nbStates = len(s)
-            # if removeStatesWithoutActions and (nbActions < nbStates):
-                # states.extend(s[:-(nbStates - nbActions)])
             if removeStatesWithoutActions and (len(container.actions) < len(st)):
                 states.extend(st[:-1])
             else:
