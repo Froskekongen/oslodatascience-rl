@@ -181,7 +181,7 @@ class Agent(object):
         '''Draw an action for each container.'''
         preds = self.predict(self.currentStates)
         actions = self.policy(preds)
-        self._addActionsToAllContainers(actions)
+        self._addActionsToContainers(actions)
         return actions
 
     def policy(self, pred):
@@ -207,7 +207,7 @@ class Agent(object):
         '''Gives the last state from each container.'''
         return [container.currentState for container in self.containers]
 
-    def _addActionsToAllContainers(self, actions):
+    def _addActionsToContainers(self, actions):
         '''Store actions to all the containers.'''
         for container, action in zip(self.containers, actions):
             container.addAction(action)
@@ -365,7 +365,7 @@ class A2C_Container(Container):
 
 
 
-class A2C(StandardAtari):
+class A2C(Agent):
     '''Almost like the A3C agent, but without the with only one game played.
 
     nbReplicates: Number of replicate games it should be able to play.
@@ -375,12 +375,15 @@ class A2C(StandardAtari):
     setupModel:?????????
     '''
 
+    D = 84 # Scaled images are 84x84.
+    nbImgInState = 4 # We pass the last 4 images as a state.
     batchSize = 1028 # Observations before gradient update
     gamma = 0.99 # discount factor for reward
     mseBeta = 0.5 # Weighting of value mse loss.
     entropyBeta = 0.1 # Weighting of entropy loss.
     learningRate = 1e-4
     decayRate = 0.99 # decay factor for RMSProp leaky sum of grad^2
+
     containerClass = A2C_Container
 
     def __init__(self, nbReplicates, actionSpace, modelFileName, resume=False, **kwargsContainer):
@@ -392,16 +395,12 @@ class A2C(StandardAtari):
         self.nbUpdates = 0
 
         self.setupModel()
-        self._makeActionClassMapping()
+        self._makeActionClassMappings()
         self.episode = 0
         self.stepNumber = 0 # iterates every frame
 
-    # def resetMemory(self):
-        # '''Resets actions, states, rewards, and predicted values.'''
-        # super().resetMemory()
-        # self.valuePreds = []
-
-    def _makeActionClassMapping(self):
+    def _makeActionClassMappings(self):
+        '''Make mappings between actions and class numbers.'''
         self.action2Class = {action: i for i, action in enumerate(self.actionSpace)}
         self.class2Action = {i: action for i, action in enumerate(self.actionSpace)}
 
@@ -416,14 +415,16 @@ class A2C(StandardAtari):
     def setupModel(self):
         '''Setup models:
         self.actionModel is the action predictions.
-        self.valueModel is the prediction of the value function.
+        self.valueModel is the prediction of the value function V. 
         self.model is the model with both outputs
         '''
         inputShape = (self.D, self.D, self.nbImgInState)
-        model = self.deepMindAtariNet(self.nbActionClasses, inputShape, includeTop=False)
+
         inp = Input(shape=inputShape)
-        x = model(inp)
-        x = Flatten()(x)
+        x = Conv2D(32, 8, 8, subsample=(4, 4), activation='relu', border_mode='same', name='conv1')(inp)
+        x = Conv2D(64, 4, 4, subsample=(2, 2), activation='relu', border_mode='same', name='conv2')(x)
+        x = Conv2D(64, 3, 3, activation='relu', border_mode='same', name='conv3')(x)
+        x = Flatten(name='flatten')(x)
         x = Dense(512, activation='relu', name='dense1')(x)
 
         action = Dense(self.nbActionClasses, activation='softmax', name='action')(x)
@@ -435,30 +436,28 @@ class A2C(StandardAtari):
         # Should we compile model?
 
         self.model = Model(inp, [action, value])
+
         actionAndEntropyLoss = makeActionAndEntropyLossA3C(self.entropyBeta)
         loss = {'action': actionAndEntropyLoss, 'value': 'mse'}
         loss_weights = {'action': 1, 'value': self.mseBeta}
+
         optim = RMSprop(self.learningRate, self.decayRate)
-        self.model.compile(optim, loss) # Need to make it possible to set other optimizers
+        self.model.compile(optim, loss) 
 
         if self.resume:
             self.model.load_weights(self.modelFileName)
             return
 
-    def _addValuePredsToAllContainers(self, valuePreds):
-        '''Store valuePreds to all the containers.'''
-        for container, vp in zip(self.containers, valuePreds):
-            container.addValuePred(vp)
-
     def drawActions(self):
         '''Draw an action based on the new observation.'''
-        actionPreds, valuePreds = self.predict(self.currentStates())
-        self._addValuePredsToAllContainers(valuePreds)
+        actionPreds, valuePreds = self.predict(self.currentStates)
+        self._addValuePredsToContainers(valuePreds)
         actions = self.policy(actionPreds)
-        self._addActionsToAllContainers(actions)
+        self._addActionsToContainers(actions)
         return actions
 
     def policy(self, pred):
+        '''Sample actions from action predictions.'''
         actions = []
         for p in pred:
             sampleClass = np.random.choice(range(self.nbActionClasses), 1, p=p)[0]
@@ -483,6 +482,10 @@ class A2C(StandardAtari):
 
         self.nbUpdates += 1
         
+    def _addValuePredsToContainers(self, valuePreds):
+        '''Store valuePreds to all the containers.'''
+        for container, vp in zip(self.containers, valuePreds):
+            container.addValuePred(vp)
 
     def getDiscountedRewards(self):
         '''Returns discounted rewards from containers.'''
@@ -520,14 +523,11 @@ class A2C(StandardAtari):
         return np.vstack(valuePreds)
 
     def updateModel(self):
-        # rewards = np.vstack(self.rewards)
-        # discountedRewards = self._discountRewards(rewards)
+        '''Collect data from containers and perform gradient update.'''
         discountedRewards = self.getDiscountedRewards()
-        # X = np.vstack(self.states)
         X = self.getStates()
         fakeLabels = [self.action2Class[action] for action in self.getActions().flatten()]
         Y = np.vstack(fakeLabels)
-        # valuePreds = np.vstack(self.valuePreds)
         valuePreds = self.getValuePreds()
         actionValues = discountedRewards - valuePreds
         Y = responseWithSampleWeights(Y, actionValues, self.nbActionClasses)
