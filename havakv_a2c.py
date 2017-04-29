@@ -192,7 +192,7 @@ class Agent(object):
         '''True when we have enough data to make an update.'''
         raise NotImplementedError
 
-    def update(self, reward, done, info):
+    def update(self):
         '''Update the model.'''
         raise NotImplementedError
 
@@ -334,6 +334,7 @@ class A2C(Agent):
 
     def _makeActionClassMappings(self):
         '''Make mappings between actions and class numbers.'''
+        # This could be done with sklearn.preprocessing.LabelEncoder
         self.action2Class = {action: i for i, action in enumerate(self.actionSpace)}
         self.class2Action = {i: action for i, action in enumerate(self.actionSpace)}
 
