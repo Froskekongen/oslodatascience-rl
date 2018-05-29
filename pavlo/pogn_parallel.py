@@ -3,6 +3,12 @@ import numpy as np
 from keras.layers import Dense, Input
 from keras.models import Model
 from keras.optimizers import RMSprop
+import shutil
+import os
+import time
+
+from joblib import Parallel, delayed
+from joblib import load, dump
 
 
 class Game(object):
@@ -171,7 +177,7 @@ class KarpathyPolicyPong(Agent):
                This implements that logic by discounting the reward on previous actions based on how long ago they were taken"""
         discounted_rewards = np.zeros_like(rewards)
         running_add = 0
-        for t in reversed(xrange(0, rewards.size)):
+        for t in reversed(range(0, rewards.size)):
             if rewards[t] != 0:
                 running_add = 0  # reset the sum, since this was a game boundary (pong specific!)
             running_add = running_add * self.gamma + rewards[t]
@@ -185,6 +191,8 @@ class KarpathyPolicyPong(Agent):
             self.model = Model(inp, out)
             optim = RMSprop(self.learning_rate, self.decay_rate)
             self.model.compile(optim, 'binary_crossentropy')
+            #self.model._make_predict_function()
+            #self.graph = tf.get_default_graph()
 
     def preprocess_observations(self, input_observation):
         """ convert the 210x160x3 uint8 frame into a 6400 float vector """
@@ -223,8 +231,15 @@ class KarpathyPolicyPong(Agent):
         return image
 
 
+def run_game(agent):
+    print("Game Start")
+    render = False
+    game = Game('Pong-v0', agent, render=render)
+    game.play()
+
+
 def main():
-    render = True
+    render = False
     filename = 'test.h5'
     resume = False
     # filename = 'pong_gym_keras_mlp_full_batch.h5'
@@ -232,8 +247,8 @@ def main():
     # render = True
 
     agent = KarpathyPolicyPong(filename, resume=resume)
-    game = Game('Pong-v0', agent, render=render)
-    game.play()
+    Parallel(n_jobs=2,verbose=1, backend="threading")(delayed(run_game)(agent) for i in range(10))
+
 
 main()
 

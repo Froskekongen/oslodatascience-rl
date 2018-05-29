@@ -1,8 +1,38 @@
+## Architecture
+
+# Take in inputs from the screen and preprocess them
+# Pass them into an NN
+# Update the weights of the NN using gradient descent
+# weights['1'] - Matrix that holds weights of pixels passing into hidden layer. Dimensions: [200 x 80 x 80] -> [200 x 6400]
+# weights['2'] - Matrix that holds weights of hidden layer passing into output. Dimensions: [1 x 200]
+
+# Process is:
+
+# processed_observations = image vector - [6400 x 1] array
+# Compute hidden_layer_values = weights['1'] dot processed_observations ([200 x 6400] dot [6400 x 1]) -> [200 x 1] - this gives initial activation values.
+# Next we need to transform those either via a sigmoid or an ReLU of some sort. Let's use ReLU
+# ReLU(hidden_layer_values)
+# Next we need to pass this one layer further
+# output_layer_value = weights['2'] dot hidden_layer_values ([1 x 200] dot [200 x 1] -> [1 x 1])
+# Now our output layer is the probability of going up or down. Let's make sure this output is between 0 and 1 by passing it through a sigmoid
+# p = sigmoid(output_layer_value)
+
+# Learning after round has finished:
+
+# Figure out the result
+# Compute the error
+# Use the error to calculate the gradient
+    # The below dimensions all assume we had exactly 10 frames in the round (not necessarily true!)
+    # dC_dw2 = hidden_layer_values^T dot gradient_log_p ([1 x 2000] dot [2000 x 1] -> 1x1)
+    # delta_1 = gradient_log_p outer_product weights['2'] = [2000 x 1] outer_product [1 x 200] ([2000 x 200])
+    # dC_dw1 = delta_1^T dot input_observations ([200 x 2000]x dot [2000 x 64000] -> [200 x 64000])
+
+# After some batch size of rounds has finished,
+    # Use rmsprop to move weights['1'] and weights['2'] in the direction of the gradient
+# Repeat!
+
 import gym
 import numpy as np
-import glob
-import pickle
-from random import randint
 
 def downsample(image):
     # Take only alternate pixels - basically halves the resolution of the image (which is fine for us)
@@ -19,14 +49,12 @@ def remove_background(image):
 
 def preprocess_observations(input_observation, prev_processed_observation, input_dimensions):
     """ convert the 210x160x3 uint8 frame into a 6400 float vector """
-    processed_observation = input_observation
+    processed_observation = input_observation[35:195] # crop
+    processed_observation = downsample(processed_observation)
     processed_observation = remove_color(processed_observation)
     processed_observation = remove_background(processed_observation)
     processed_observation[processed_observation != 0] = 1 # everything else (paddles, ball) just set to 1
     # Convert from 80 x 80 matrix to 6400 x 1 matrix
-
-    processed_observation = processed_observation[25:195,]
-
     processed_observation = processed_observation.astype(np.float).ravel()
 
     # subtract the previous frame from the current one so we are only processing on changes in the game
@@ -42,13 +70,6 @@ def preprocess_observations(input_observation, prev_processed_observation, input
 def sigmoid(x):
     return 1.0/(1.0 + np.exp(-x))
 
-def softmax(x):
-    e = np.exp(x - np.max(x))  # prevent overflow
-    if e.ndim == 1:
-        return e / np.sum(e, axis=0)
-    else:
-        return e / np.array([np.sum(e, axis=1)]).T  # ndim = 2
-
 def relu(vector):
     vector[vector < 0] = 0
     return vector
@@ -56,46 +77,30 @@ def relu(vector):
 def apply_neural_nets(observation_matrix, weights):
     """ Based on the observation_matrix and weights, compute the new hidden layer values and the new output layer values"""
     hidden_layer_values = np.dot(weights['1'], observation_matrix)
-    hidden_layer_values = np.tanh(hidden_layer_values)
-    hidden_layer_values = np.dot(np.array(hidden_layer_values)[np.newaxis], weights['2'])
-    hidden_layer_values = np.tanh(hidden_layer_values)
-    output_layer_values = np.dot(hidden_layer_values, weights['3'])
-    output_layer_values = softmax(output_layer_values)
+    hidden_layer_values = relu(hidden_layer_values)
+    output_layer_values = np.dot(hidden_layer_values, weights['2'])
+    output_layer_values = sigmoid(output_layer_values)
     return hidden_layer_values, output_layer_values
 
-def choose_action(random_action, probability):
-    random_value = randint(4, 5) #np.random.uniform()
-
-    if (random_action):
-        return random_value
+def choose_action(probability):
+    random_value = np.random.uniform()
+    if random_value < probability:
+        # signifies up in openai gym
+        return 2
     else:
-        if np.argmax(probability) == 1:
-            return 4
-        else:
-            return 5
-
-
-    # if random_value < probability:
-    #     # signifies up in openai gym
-    #     return 2
-    # else:
-    #     # signifies down in openai gym
-    #     return 3
+         # signifies down in openai gym
+        return 3
 
 def compute_gradient(gradient_log_p, hidden_layer_values, observation_values, weights):
     """ See here: http://neuralnetworksanddeeplearning.com/chap2.html"""
     delta_L = gradient_log_p
-    dC_dw3 = np.dot(hidden_layer_values.T, delta_L)
-    delta_l2 = np.dot(dC_dw3.T, weights['2'].T)
-    delta_l2 = np.tanh(delta_l2)
-    dC_dw2 = np.dot(delta_l2.T, observation_values)
-    delta_l3 = np.dot(dC_dw2.T, weights['2'].T)
-    delta_l3 = np.tanh(delta_l3)
-    dC_dw1 = np.dot(delta_l3.T, observation_values)
+    dC_dw2 = np.dot(hidden_layer_values.T, delta_L).ravel()
+    delta_l2 = np.outer(delta_L, weights['2'])
+    delta_l2 = relu(delta_l2)
+    dC_dw1 = np.dot(delta_l2.T, observation_values)
     return {
         '1': dC_dw1,
-        '2': dC_dw2,
-        '3': dC_dw3
+        '2': dC_dw2
     }
 
 def update_weights(weights, expectation_g_squared, g_dict, decay_rate, learning_rate):
@@ -129,51 +134,28 @@ def discount_with_rewards(gradient_log_p, episode_rewards, gamma):
 
 
 def main():
-    env = gym.make("SpaceInvaders-v0")
+    env = gym.make("Pong-v0")
     observation = env.reset() # This gets us the image
 
     # hyperparameters
+    episode_number = 0
     batch_size = 10
     gamma = 0.99 # discount factor for reward
     decay_rate = 0.99
-    num_hidden_layer_neurons = 512
-    second_num_hidden_layer_neurons = 256
-    input_dimensions = 170 * 160
-    learning_rate = 1e-2
+    num_hidden_layer_neurons = 200
+    input_dimensions = 80 * 80
+    learning_rate = 1e-4
 
     episode_number = 0
     reward_sum = 0
     running_reward = None
     prev_processed_observations = None
 
-    max_random_actions = 90
-    max_actions = 100
-    current_action_count = 0
-    random_action_counter = 0
-    random_action = True
-    decrease_random_action_after_episode = 20
-    episode_number_for_random_action = 0
-    max_score = 0
-
-    files_present = glob.glob('weights.pkl')
-
     weights = {
         '1': np.random.randn(num_hidden_layer_neurons, input_dimensions) / np.sqrt(input_dimensions),
-        '2': np.random.randn(num_hidden_layer_neurons, second_num_hidden_layer_neurons) / np.sqrt(second_num_hidden_layer_neurons),
-        '3': np.random.randn(second_num_hidden_layer_neurons, 6) / np.sqrt(second_num_hidden_layer_neurons)
+        '2': np.random.randn(num_hidden_layer_neurons) / np.sqrt(num_hidden_layer_neurons)
     }
 
-    if files_present:
-        print( 'WARNING: This file already exists!')
-        weights = pickle.load(open("weights.pkl", "rb"))
-    else:
-        print( 'WARNING: NO FILE!')
-
-
-
-        #df = pd.read_csv(file_path, header=None, usecols=[3,6])
-
-   # genfromtxt('weights1.csv', delimiter=',')
     # To be used with rmsprop algorithm (http://sebastianruder.com/optimizing-gradient-descent/index.html#rmsprop)
     expectation_g_squared = {}
     g_dict = {}
@@ -187,36 +169,12 @@ def main():
     while True:
         env.render()
         processed_observations, prev_processed_observations = preprocess_observations(observation, prev_processed_observations, input_dimensions)
-        hidden_layer_values, all_moves_probability = apply_neural_nets(processed_observations, weights)
-
+        hidden_layer_values, up_probability = apply_neural_nets(processed_observations, weights)
+    
         episode_observations.append(processed_observations)
         episode_hidden_layer_values.append(hidden_layer_values)
 
-        random_value = randint(0, 1)
-
-        if (random_value == 1 and
-                random_action_counter <= max_random_actions and
-                current_action_count <= max_actions):
-            random_action_counter += 1
-            random_action = True
-        else:
-            if current_action_count >= max_actions:
-                current_action_count = 0
-                random_action_counter = 0
-            random_action = False
-
-        # every 20 episodes will decrease number of random actions
-        if (episode_number_for_random_action == decrease_random_action_after_episode and
-                max_random_actions > 0):
-            episode_number_for_random_action = 0
-            max_random_actions -= 1
-
-        # print('episode: %f --> %r random action : rv=  %f , random_action_counter = %f , current_action_count = %f ' %
-        #       (episode_number, random_action, random_value, random_action_counter, current_action_count))
-
-        action = choose_action(random_action, all_moves_probability)
-
-        current_action_count += 1
+        action = choose_action(up_probability)
 
         # carry out the chosen action
         observation, reward, done, info = env.step(action)
@@ -225,20 +183,13 @@ def main():
         episode_rewards.append(reward)
 
         # see here: http://cs231n.github.io/neural-networks-2/#losses
-        #fake_label = 1 if action == 2 else 0
-        fake_label = np.zeros(6)
-        fake_label[action] = 1
-        # if action == 4:
-        #     fake_label[0] = 1
-        # else:
-        #     fake_label[1] = 1
-        loss_function_gradient = fake_label - all_moves_probability
+        fake_label = 1 if action == 2 else 0
+        loss_function_gradient = fake_label - up_probability
         episode_gradient_log_ps.append(loss_function_gradient)
 
 
         if done: # an episode finished
             episode_number += 1
-            episode_number_for_random_action +=1
 
             # Combine the following values for the episode
             episode_hidden_layer_values = np.vstack(episode_hidden_layer_values)
@@ -250,10 +201,10 @@ def main():
             episode_gradient_log_ps_discounted = discount_with_rewards(episode_gradient_log_ps, episode_rewards, gamma)
 
             gradient = compute_gradient(
-                episode_gradient_log_ps_discounted,
-                episode_hidden_layer_values,
-                episode_observations,
-                weights
+              episode_gradient_log_ps_discounted,
+              episode_hidden_layer_values,
+              episode_observations,
+              weights
             )
 
             # Sum the gradient for use when we hit the batch size
@@ -266,21 +217,7 @@ def main():
             episode_hidden_layer_values, episode_observations, episode_gradient_log_ps, episode_rewards = [], [], [], [] # reset values
             observation = env.reset() # reset env
             running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-            if reward_sum > max_score:
-                max_score = reward_sum
-            print('episode# %f resetting env. episode reward total was %f. running mean: %f MAX: %f' % (episode_number,
-                                                                                                        reward_sum,
-                                                                                                        running_reward,
-                                                                                                        max_score))
-            print('episode: %f --> %r random action : MAXRAND = %f , rv=  %f , random_action_counter = %f , current_action_count = %f ' %
-                         (episode_number, random_action,max_random_actions, random_value, random_action_counter, current_action_count))
-
-            pickle.dump(weights, open("weights.pkl", "wb"))
-
-            #for layer_name in weights.keys():
-            #    df = pd.DataFrame(weights[layer_name])
-            #    df.to_csv("weights" +layer_name+ ".csv", header=None, index=None)
-
+            print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
             reward_sum = 0
             prev_processed_observations = None
 

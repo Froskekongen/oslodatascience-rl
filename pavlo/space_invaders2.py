@@ -57,22 +57,21 @@ def apply_neural_nets(observation_matrix, weights):
     """ Based on the observation_matrix and weights, compute the new hidden layer values and the new output layer values"""
     hidden_layer_values = np.dot(weights['1'], observation_matrix)
     hidden_layer_values = np.tanh(hidden_layer_values)
-    hidden_layer_values = np.dot(np.array(hidden_layer_values)[np.newaxis], weights['2'])
-    hidden_layer_values = np.tanh(hidden_layer_values)
-    output_layer_values = np.dot(hidden_layer_values, weights['3'])
+    output_layer_values = np.dot(hidden_layer_values, weights['2'])
     output_layer_values = softmax(output_layer_values)
     return hidden_layer_values, output_layer_values
 
 def choose_action(random_action, probability):
-    random_value = randint(4, 5) #np.random.uniform()
+    random_value = randint(0, 5) #np.random.uniform()
 
     if (random_action):
         return random_value
     else:
-        if np.argmax(probability) == 1:
-            return 4
-        else:
-            return 5
+        return np.argmax(probability)
+        # if np.argmax(probability) == 1:
+        #     return 4
+        # else:
+        #     return 5
 
 
     # if random_value < probability:
@@ -85,21 +84,18 @@ def choose_action(random_action, probability):
 def compute_gradient(gradient_log_p, hidden_layer_values, observation_values, weights):
     """ See here: http://neuralnetworksanddeeplearning.com/chap2.html"""
     delta_L = gradient_log_p
-    dC_dw3 = np.dot(hidden_layer_values.T, delta_L)
-    delta_l2 = np.dot(dC_dw3.T, weights['2'].T)
+    dC_dw2 = np.dot(hidden_layer_values.T, delta_L)
+    delta_l2 = np.dot(delta_L, weights['2'].T)
     delta_l2 = np.tanh(delta_l2)
-    dC_dw2 = np.dot(delta_l2.T, observation_values)
-    delta_l3 = np.dot(dC_dw2.T, weights['2'].T)
-    delta_l3 = np.tanh(delta_l3)
-    dC_dw1 = np.dot(delta_l3.T, observation_values)
+    dC_dw1 = np.dot(delta_l2.T, observation_values)
     return {
         '1': dC_dw1,
-        '2': dC_dw2,
-        '3': dC_dw3
+        '2': dC_dw2
     }
 
 def update_weights(weights, expectation_g_squared, g_dict, decay_rate, learning_rate):
     """ See here: http://sebastianruder.com/optimizing-gradient-descent/index.html#rmsprop"""
+    print('Update_weights!')
     epsilon = 1e-5
     for layer_name in weights.keys():
         g = g_dict[layer_name]
@@ -124,7 +120,7 @@ def discount_with_rewards(gradient_log_p, episode_rewards, gamma):
     discounted_episode_rewards = discount_rewards(episode_rewards, gamma)
     # standardize the rewards to be unit normal (helps control the gradient estimator variance)
     discounted_episode_rewards -= np.mean(discounted_episode_rewards)
-    discounted_episode_rewards /= np.std(discounted_episode_rewards)
+#    discounted_episode_rewards /= np.std(discounted_episode_rewards)
     return gradient_log_p * discounted_episode_rewards
 
 
@@ -141,8 +137,11 @@ def main():
     input_dimensions = 170 * 160
     learning_rate = 1e-2
 
-    episode_number = 0
+    game_number = 1
+    episode_number = 1
+    image_number = 0
     reward_sum = 0
+    episode_reward_sum = 0
     running_reward = None
     prev_processed_observations = None
 
@@ -152,28 +151,26 @@ def main():
     random_action_counter = 0
     random_action = True
     decrease_random_action_after_episode = 20
-    episode_number_for_random_action = 0
+    game_number_for_random_action = 0
     max_score = 0
+    picture_count = 0
+
+    lives = 3
+    process = False
 
     files_present = glob.glob('weights.pkl')
 
     weights = {
         '1': np.random.randn(num_hidden_layer_neurons, input_dimensions) / np.sqrt(input_dimensions),
-        '2': np.random.randn(num_hidden_layer_neurons, second_num_hidden_layer_neurons) / np.sqrt(second_num_hidden_layer_neurons),
-        '3': np.random.randn(second_num_hidden_layer_neurons, 6) / np.sqrt(second_num_hidden_layer_neurons)
+        '2': np.random.randn(num_hidden_layer_neurons, 6) / np.sqrt(num_hidden_layer_neurons)
     }
 
     if files_present:
-        print( 'WARNING: This file already exists!')
+        print('WARNING: This file already exists!')
         weights = pickle.load(open("weights.pkl", "rb"))
     else:
-        print( 'WARNING: NO FILE!')
+        print('WARNING: NO FILE!')
 
-
-
-        #df = pd.read_csv(file_path, header=None, usecols=[3,6])
-
-   # genfromtxt('weights1.csv', delimiter=',')
     # To be used with rmsprop algorithm (http://sebastianruder.com/optimizing-gradient-descent/index.html#rmsprop)
     expectation_g_squared = {}
     g_dict = {}
@@ -189,57 +186,61 @@ def main():
         processed_observations, prev_processed_observations = preprocess_observations(observation, prev_processed_observations, input_dimensions)
         hidden_layer_values, all_moves_probability = apply_neural_nets(processed_observations, weights)
 
-        episode_observations.append(processed_observations)
-        episode_hidden_layer_values.append(hidden_layer_values)
 
-        random_value = randint(0, 1)
 
-        if (random_value == 1 and
-                random_action_counter <= max_random_actions and
-                current_action_count <= max_actions):
-            random_action_counter += 1
-            random_action = True
-        else:
-            if current_action_count >= max_actions:
-                current_action_count = 0
-                random_action_counter = 0
-            random_action = False
-
-        # every 20 episodes will decrease number of random actions
-        if (episode_number_for_random_action == decrease_random_action_after_episode and
-                max_random_actions > 0):
-            episode_number_for_random_action = 0
-            max_random_actions -= 1
+        current_action_count, game_number_for_random_action, max_random_actions, random_action, random_action_counter, random_value = isRandomAction(
+            current_action_count, decrease_random_action_after_episode, game_number_for_random_action, max_actions,
+            max_random_actions, random_action, random_action_counter)
 
         # print('episode: %f --> %r random action : rv=  %f , random_action_counter = %f , current_action_count = %f ' %
-        #       (episode_number, random_action, random_value, random_action_counter, current_action_count))
+        #       (game_number, random_action, random_value, random_action_counter, current_action_count))
+
+        random_action = False
 
         action = choose_action(random_action, all_moves_probability)
 
+        # if not random_action:
+        #     print('NN result = %d', action)
+        #     print(all_moves_probability)
+
         current_action_count += 1
+
+        picture_count += 1
 
         # carry out the chosen action
         observation, reward, done, info = env.step(action)
 
-        reward_sum += reward
-        episode_rewards.append(reward)
+        # print('episode: %d -->  action =  %d random_action =  %r , reward = %f , done = %r , lives = %d' %
+        #       (picture_count, action, random_action, reward, done, info.get("ale.lives")))
 
-        # see here: http://cs231n.github.io/neural-networks-2/#losses
-        #fake_label = 1 if action == 2 else 0
-        fake_label = np.zeros(6)
-        fake_label[action] = 1
-        # if action == 4:
-        #     fake_label[0] = 1
-        # else:
-        #     fake_label[1] = 1
-        loss_function_gradient = fake_label - all_moves_probability
-        episode_gradient_log_ps.append(loss_function_gradient)
+        if reward == 200:
+            print('Got BONUS 200')
+        else:
+            # game statistic attribute
+            reward_sum += reward
+            image_number += 1
+            episode_reward_sum += reward
 
+            episode_rewards.append(reward)
+            episode_observations.append(processed_observations)
+            episode_hidden_layer_values.append(hidden_layer_values)
 
-        if done: # an episode finished
-            episode_number += 1
-            episode_number_for_random_action +=1
+            # see here: http://cs231n.github.io/neural-networks-2/#losses
+            #fake_label = 1 if action == 2 else 0
+            fake_label = np.zeros(6)
+            fake_label[action] = 1
+            # if action == 4:
+            #     fake_label[0] = 1
+            # else:
+            #     fake_label[1] = 1
+            loss_function_gradient = fake_label - all_moves_probability
+            episode_gradient_log_ps.append(loss_function_gradient)
 
+            if lives > info.get("ale.lives"):
+                process = True
+                lives = info.get("ale.lives")
+
+        if process: # an episode finished
             # Combine the following values for the episode
             episode_hidden_layer_values = np.vstack(episode_hidden_layer_values)
             episode_observations = np.vstack(episode_observations)
@@ -265,23 +266,49 @@ def main():
 
             episode_hidden_layer_values, episode_observations, episode_gradient_log_ps, episode_rewards = [], [], [], [] # reset values
             observation = env.reset() # reset env
-            running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-            if reward_sum > max_score:
-                max_score = reward_sum
-            print('episode# %f resetting env. episode reward total was %f. running mean: %f MAX: %f' % (episode_number,
-                                                                                                        reward_sum,
-                                                                                                        running_reward,
-                                                                                                        max_score))
-            print('episode: %f --> %r random action : MAXRAND = %f , rv=  %f , random_action_counter = %f , current_action_count = %f ' %
-                         (episode_number, random_action,max_random_actions, random_value, random_action_counter, current_action_count))
 
-            pickle.dump(weights, open("weights.pkl", "wb"))
+            print('episode# %d images %d episode reward %d' % (episode_number, image_number, episode_reward_sum))
 
-            #for layer_name in weights.keys():
-            #    df = pd.DataFrame(weights[layer_name])
-            #    df.to_csv("weights" +layer_name+ ".csv", header=None, index=None)
+            # if reward_sum > max_score:
+            #     max_score = reward_sum
+            # print('episode: %f --> %r random action : MAXRAND = %f , rv=  %f , random_action_counter = %f , current_action_count = %f ' %
+            #              (game_number, random_action,max_random_actions, random_value, random_action_counter, current_action_count))
 
-            reward_sum = 0
+            if done:
+                running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
+                print('game# %d reward %d. running mean: %f' % (game_number, reward_sum, running_reward))
+                game_number += 1
+                game_number_for_random_action += 1
+                lives = 3
+                reward_sum = 0
+                pickle.dump(weights, open("weights.pkl", "wb"))
+
+            episode_number += 1
+            episode_reward_sum = 0
+            image_number = 0
             prev_processed_observations = None
+            process = False
+
+
+def isRandomAction(current_action_count, decrease_random_action_after_episode, game_number_for_random_action,
+                   max_actions, max_random_actions, random_action, random_action_counter):
+    random_value = randint(0, 1)
+    if (random_value == 1 and
+            random_action_counter <= max_random_actions and
+            current_action_count <= max_actions):
+        random_action_counter += 1
+        random_action = True
+    else:
+        if current_action_count >= max_actions:
+            current_action_count = 0
+            random_action_counter = 0
+        random_action = False
+    # every 20 episodes will decrease number of random actions
+    if (game_number_for_random_action == decrease_random_action_after_episode and
+            max_random_actions > 0):
+        game_number_for_random_action = 0
+        max_random_actions -= 1
+    return current_action_count, game_number_for_random_action, max_random_actions, random_action, random_action_counter, random_value
+
 
 main()
